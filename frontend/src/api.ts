@@ -1,0 +1,57 @@
+import type { ConnectionStatus, Playlist, TrackSyncStatus, Mapping, SyncResult } from './types'
+
+const base = '/api'
+
+async function req<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, { credentials: 'include', ...options })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+export const api = {
+  auth: {
+    status: () => req<ConnectionStatus>('/auth/status'),
+    spotifyLogin: () => { window.location.href = '/auth/spotify/login' },
+    tidalLogin: () => { window.location.href = '/auth/tidal/login' },
+    disconnect: (service: string) => req<void>(`/auth/${service}`, { method: 'DELETE' }),
+  },
+
+  playlists: {
+    getSpotify: () => req<Playlist[]>(`${base}/playlists/spotify`),
+    getTidal: () => req<Playlist[]>(`${base}/playlists/tidal`),
+  },
+
+  sync: {
+    getMappings: () => req<Mapping[]>(`${base}/sync/mappings`),
+
+    createMapping: (body: {
+      sourceService: string
+      sourcePlaylistId: string
+      targetService: string
+      targetPlaylistId: string
+      direction: string
+      autoSync: boolean
+    }) => req<number>(`${base}/sync/mappings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+    deleteMapping: (id: number) =>
+      req<void>(`${base}/sync/mappings/${id}`, { method: 'DELETE' }),
+
+    triggerSync: (id: number) =>
+      req<SyncResult>(`${base}/sync/mappings/${id}/sync`, { method: 'POST' }),
+
+    getStatus: (id: number) =>
+      req<TrackSyncStatus[]>(`${base}/sync/mappings/${id}/status`),
+
+    updateMapping: (id: number, patch: { autoSync?: boolean; direction?: string }) =>
+      req<void>(`${base}/sync/mappings/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+  },
+}

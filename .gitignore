@@ -1,0 +1,18 @@
+# Secrets — never commit
+.env
+
+# .NET
+backend/bin/
+backend/obj/
+backend/*.user
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
