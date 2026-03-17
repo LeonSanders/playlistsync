@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PlaylistSync.Services;
 
-public class TidalService(IConfiguration config, AppDbContext db, HttpClient http, ILogger<TidalService> logger)
+public class TidalService(IConfiguration config, AppDbContext db, HttpClient http)
 {
     private readonly string _clientId = config["Tidal:ClientId"]!;
     private readonly string _clientSecret = config["Tidal:ClientSecret"]!;

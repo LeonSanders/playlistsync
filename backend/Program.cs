@@ -7,20 +7,25 @@ using PlaylistSync.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var pg = builder.Configuration.GetConnectionString("Postgres")!;
+var isTest = builder.Environment.EnvironmentName == "Test";
+var pg = builder.Configuration.GetConnectionString("Postgres") ?? "";
 
-builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(pg));
+if (!isTest)
+    builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(pg));
 
 builder.Services.AddHangfire(c => c
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
-    .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(pg)));
+    .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(isTest ? "Host=localhost" : pg)));
 builder.Services.AddHangfireServer();
 
 builder.Services.AddHttpClient<TidalService>();
-builder.Services.AddScoped<SpotifyService>();
-builder.Services.AddScoped<TidalService>();
+if (!isTest)
+{
+    builder.Services.AddScoped<SpotifyService>();
+    builder.Services.AddScoped<TidalService>();
+}
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<PlaylistSyncJob>();
 
@@ -34,8 +39,9 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+if (!isTest)
 {
+    using var scope = app.Services.CreateScope();
     var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await ctx.Database.MigrateAsync();
 }
@@ -50,10 +56,14 @@ app.UseCors();
 app.MapControllers();
 app.MapHangfireDashboard("/hangfire");
 
-// Register the hourly auto-sync recurring job
-RecurringJob.AddOrUpdate<PlaylistSyncJob>(
-    "auto-sync-all",
-    j => j.RunAllPendingAsync(),
-    Cron.Hourly);
+if (!isTest)
+    RecurringJob.AddOrUpdate<PlaylistSyncJob>(
+        "auto-sync-all",
+        j => j.RunAllPendingAsync(),
+        Cron.Hourly);
 
 app.Run();
+
+// Expose Program class for WebApplicationFactory in tests
+public partial class Program { }
+

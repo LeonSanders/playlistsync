@@ -1,0 +1,36 @@
+{
+  "editor.formatOnSave": true,
+  "editor.rulers": [120],
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csdevkit",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "dotnet-test-explorer.testProjectPath": "backend.tests/PlaylistSync.Tests.csproj",
+  "dotnet-test-explorer.autoWatch": false,
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/node_modules": true
+  },
+  "search.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/node_modules": true
+  },
+  "omnisharp.enableRoslynAnalyzers": true,
+  "omnisharp.enableEditorConfigSupport": true,
+  "csharp.inlayHints.parameters.enabled": true,
+  "csharp.inlayHints.types.enabled": false
+}

@@ -1,0 +1,153 @@
+### PlaylistSync API — REST Client (requires humao.rest-client extension)
+### Run any request with the "Send Request" link that appears above it.
+
+@host = http://localhost:5000
+@frontendHost = http://localhost:5173
+
+# ─────────────────────────────────────────────
+# Auth
+# ─────────────────────────────────────────────
+
+### Check connection status (use after logging in via the browser)
+GET {{host}}/auth/status
+Cookie: user_id=dev-user-1
+
+###
+
+### Kick off Spotify OAuth (opens in browser)
+GET {{host}}/auth/spotify/login
+
+###
+
+### Kick off Tidal OAuth (opens in browser)
+GET {{host}}/auth/tidal/login
+
+###
+
+### Disconnect Spotify
+DELETE {{host}}/auth/spotify
+Cookie: user_id=dev-user-1
+
+###
+
+### Disconnect Tidal
+DELETE {{host}}/auth/tidal
+Cookie: user_id=dev-user-1
+
+
+# ─────────────────────────────────────────────
+# Playlists
+# ─────────────────────────────────────────────
+
+### List Spotify playlists
+GET {{host}}/api/playlists/spotify
+Cookie: user_id=dev-user-1
+
+###
+
+### List Tidal playlists
+GET {{host}}/api/playlists/tidal
+Cookie: user_id=dev-user-1
+
+###
+
+### Get tracks for a Spotify playlist (replace playlist ID)
+GET {{host}}/api/playlists/spotify/37i9dQZF1DXcBWIGoYBM5M/tracks
+Cookie: user_id=dev-user-1
+
+###
+
+### Get tracks for a Tidal playlist (replace playlist ID)
+GET {{host}}/api/playlists/tidal/12345678/tracks
+Cookie: user_id=dev-user-1
+
+
+# ─────────────────────────────────────────────
+# Sync mappings
+# ─────────────────────────────────────────────
+
+### List all mappings for the current user
+GET {{host}}/api/sync/mappings
+Cookie: user_id=dev-user-1
+
+###
+
+### Create a new mapping (replace playlist IDs)
+POST {{host}}/api/sync/mappings
+Cookie: user_id=dev-user-1
+Content-Type: application/json
+
+{
+  "sourceService": "spotify",
+  "sourcePlaylistId": "37i9dQZF1DXcBWIGoYBM5M",
+  "targetService": "tidal",
+  "targetPlaylistId": "12345678",
+  "direction": "Bidirectional",
+  "autoSync": true
+}
+
+###
+
+### Update a mapping (replace mapping ID)
+PATCH {{host}}/api/sync/mappings/1
+Cookie: user_id=dev-user-1
+Content-Type: application/json
+
+{
+  "autoSync": false,
+  "direction": "SourceToTarget"
+}
+
+###
+
+### Delete a mapping (replace mapping ID)
+DELETE {{host}}/api/sync/mappings/1
+Cookie: user_id=dev-user-1
+
+
+# ─────────────────────────────────────────────
+# Sync operations
+# ─────────────────────────────────────────────
+
+### Trigger a manual sync (replace mapping ID)
+POST {{host}}/api/sync/mappings/1/sync
+Cookie: user_id=dev-user-1
+
+###
+
+### Get per-track sync status for a mapping (replace mapping ID)
+GET {{host}}/api/sync/mappings/1/status
+Cookie: user_id=dev-user-1
+
+###
+
+### View sync logs (optional ?mappingId=1&limit=10)
+GET {{host}}/api/sync/logs?limit=10
+Cookie: user_id=dev-user-1
+
+
+# ─────────────────────────────────────────────
+# Webhook (simulate Spotify sending a change notification)
+# ─────────────────────────────────────────────
+
+### Spotify webhook challenge handshake
+POST {{host}}/api/sync/webhook/spotify
+Content-Type: application/json
+
+{
+  "challenge": "test-challenge-abc123",
+  "items": null
+}
+
+###
+
+### Simulate Spotify playlist change event (replace playlist ID)
+POST {{host}}/api/sync/webhook/spotify
+Content-Type: application/json
+
+{
+  "challenge": null,
+  "items": [
+    { "uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", "type": "playlist" }
+  ]
+}

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PlaylistSync.Services;
 
-public class SpotifyService(IConfiguration config, AppDbContext db, ILogger<SpotifyService> logger)
+public class SpotifyService(IConfiguration config, AppDbContext db)
 {
     private readonly string _clientId = config["Spotify:ClientId"]!;
     private readonly string _clientSecret = config["Spotify:ClientSecret"]!;
@@ -18,8 +18,10 @@ public class SpotifyService(IConfiguration config, AppDbContext db, ILogger<Spot
             _clientId,
             LoginRequest.ResponseType.Code)
         {
-            Scope = [Scopes.PlaylistReadPrivate, Scopes.PlaylistReadCollaborative,
-                     Scopes.PlaylistModifyPublic, Scopes.PlaylistModifyPrivate],
+            Scope = new List<string> {
+                Scopes.PlaylistReadPrivate, Scopes.PlaylistReadCollaborative,
+                Scopes.PlaylistModifyPublic, Scopes.PlaylistModifyPrivate
+            },
             State = state
         };
         return request.ToUri().ToString();

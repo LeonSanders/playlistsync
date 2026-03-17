@@ -1,7 +1,6 @@
 using PlaylistSync.Data;
 using PlaylistSync.DTOs;
 using Microsoft.EntityFrameworkCore;
-using FuzzySharp;
 
 namespace PlaylistSync.Services;
 
