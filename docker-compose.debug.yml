@@ -1,49 +1,57 @@
 services:
   postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: playlistsync
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+    extends:
+      file: docker-compose.yml
+      service: postgres
 
   backend:
-    build: ./backend
-    restart: unless-stopped
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    working_dir: /src
+    volumes:
+      - ./backend:/src
+      - nuget-cache:/root/.nuget/packages
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+      - "2222:2222"     # vsdbg remote debugger port
     depends_on:
       postgres:
         condition: service_healthy
     environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5000
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=playlistsync;Username=postgres;Password=postgres"
       Spotify__ClientId: "${SPOTIFY_CLIENT_ID}"
       Spotify__ClientSecret: "${SPOTIFY_CLIENT_SECRET}"
-      Spotify__RedirectUri: "${SPOTIFY_REDIRECT_URI:-http://localhost/auth/spotify/callback}"
+      Spotify__RedirectUri: "${SPOTIFY_REDIRECT_URI:-http://localhost:5000/auth/spotify/callback}"
       Tidal__ClientId: "${TIDAL_CLIENT_ID}"
       Tidal__ClientSecret: "${TIDAL_CLIENT_SECRET}"
-      Tidal__RedirectUri: "${TIDAL_REDIRECT_URI:-http://localhost/auth/tidal/callback}"
-      Frontend__Url: "${FRONTEND_URL:-http://localhost}"
-      - "ASPNETCORE_ENVIRONMENT=Development"
-      - "DOTNET_USE_POLLING_FILE_WATCHER=1"
-    ports:
-      - "5001:5001"
-      - "5001:443"
+      Tidal__RedirectUri: "${TIDAL_REDIRECT_URI:-http://localhost:5000/auth/tidal/callback}"
+      Frontend__Url: "http://localhost:5173"
+      Logging__LogLevel__Default: Debug
+      Logging__LogLevel__Microsoft.AspNetCore: Information
+      Logging__LogLevel__Hangfire: Warning
+    command: >
+      sh -c "
+        apt-get update -qq &&
+        apt-get install -y --no-install-recommends unzip curl &&
+        curl -sSL https://aka.ms/getvsdbgsh | bash /dev/stdin -v latest -l /vsdbg &&
+        dotnet watch run --no-launch-profile
+      "
 
   frontend:
-    build: ./frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - npm-cache:/app/node_modules
     ports:
-      - "80:80"
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     environment:
-      - CHOKIDAR_USEPOLLING=true # Ensures hot-reload works in Docker
+      VITE_API_URL: http://localhost:5000
 
 volumes:
+  nuget-cache:
+  npm-cache:
   pgdata:
