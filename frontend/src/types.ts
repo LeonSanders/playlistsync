@@ -49,7 +49,7 @@ export interface SyncResult {
   tracksRemoved: number
   tracksSkipped: number
   unmatchedCount: number
-  unmatched: { name: string; artist: string; sourceService: string }[]
+  unmatched: { name: string; artist: string; sourceService: string; reason: string }[]
   error?: string
 }
 

@@ -366,12 +366,30 @@ export default function App() {
               : activeMapping ? 'Never synced' : 'No mapping selected'}
         </span>
         {syncResult && syncResult.unmatchedCount > 0 && (
-          <span className="unmatched-note">{syncResult.unmatchedCount} tracks couldn't be matched</span>
+          <button className="unmatched-toggle" onClick={() =>
+            document.getElementById('unmatched-list')?.classList.toggle('open')}>
+            {syncResult.unmatchedCount} unmatched — details ▾
+          </button>
         )}
         <button className="btn btn-primary" onClick={handleSync} disabled={!syncEnabled || syncing}>
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </footer>
+
+      {syncResult && syncResult.unmatched.length > 0 && (
+        <div id="unmatched-list" className="unmatched-list">
+          <div className="unmatched-header">{syncResult.unmatched.length} tracks couldn't be matched</div>
+          {syncResult.unmatched.map((t, i) => (
+            <div key={i} className="unmatched-item">
+              <div className="unmatched-track-info">
+                <span className="unmatched-name">{t.name}</span>
+                <span className="unmatched-artist">{t.artist}</span>
+              </div>
+              <span className="unmatched-reason">{t.reason}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

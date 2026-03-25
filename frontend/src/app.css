@@ -557,3 +557,45 @@ body {
   color: #e24b4a;
 }
 .btn-danger:hover { background: #fcebeb; }
+
+
+/* Unmatched tracks panel */
+.unmatched-toggle {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--warning);
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  white-space: nowrap;
+}
+.unmatched-toggle:hover { text-decoration: underline; }
+.unmatched-list {
+  display: none;
+  border-top: 0.5px solid var(--border);
+  background: var(--surface);
+  max-height: 220px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.unmatched-list.open { display: block; }
+.unmatched-header {
+  padding: 8px 20px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom: 0.5px solid var(--border);
+}
+.unmatched-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 20px;
+  border-bottom: 0.5px solid var(--border);
+}
+.unmatched-item:last-child { border-bottom: none; }
+.unmatched-track-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.unmatched-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unmatched-artist { font-size: 11px; color: var(--text-2); }
+.unmatched-reason { font-size: 11px; color: var(--text-3); flex-shrink: 0; max-width: 240px; text-align: right; }

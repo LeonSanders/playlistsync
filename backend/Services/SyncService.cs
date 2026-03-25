@@ -98,14 +98,27 @@ public class SyncService(
 
         foreach (var track in tracks)
         {
-            var match = await SearchTrackAsync(userId, service, track.Name, track.Artist, track.Isrc);
-            if (match != null)
-                trackIds.Add(match.Id);
-            else
+            try
             {
-                // Fuzzy fallback - already tried in SearchTrackAsync, mark as unmatched
+                var match = await SearchTrackAsync(userId, service, track.Name, track.Artist, track.Isrc);
+                if (match != null)
+                {
+                    trackIds.Add(match.Id);
+                }
+                else
+                {
+                    skipped++;
+                    var reason = track.Isrc != null
+                        ? $"Not in {service} catalog (ISRC: {track.Isrc})"
+                        : $"Not in {service} catalog (no ISRC — matched by name/artist)";
+                    unmatched.Add(new UnmatchedTrackDto(track.Name, track.Artist, service, reason));
+                }
+            }
+            catch (Exception ex)
+            {
                 skipped++;
-                unmatched.Add(new UnmatchedTrackDto(track.Name, track.Artist, service == "spotify" ? "tidal" : "spotify"));
+                logger.LogWarning("Search failed for '{Name}' by '{Artist}': {Msg}", track.Name, track.Artist, ex.Message);
+                unmatched.Add(new UnmatchedTrackDto(track.Name, track.Artist, service, $"Search error: {ex.Message}"));
             }
         }
 
@@ -125,8 +138,13 @@ public class SyncService(
         var mapping = await db.SyncMappings.FindAsync(mappingId)
             ?? throw new InvalidOperationException("Mapping not found");
 
-        var sourceTracks = await GetTracksAsync(userId, mapping.SourceService, mapping.SourcePlaylistId);
-        var targetTracks = await GetTracksAsync(userId, mapping.TargetService, mapping.TargetPlaylistId);
+        // Gracefully handle case where one service isn't connected
+        List<TrackDto> sourceTracks = [];
+        List<TrackDto> targetTracks = [];
+        try { sourceTracks = await GetTracksAsync(userId, mapping.SourceService, mapping.SourcePlaylistId); }
+        catch (InvalidOperationException ex) { logger.LogWarning("Source not connected for status check: {Msg}", ex.Message); }
+        try { targetTracks = await GetTracksAsync(userId, mapping.TargetService, mapping.TargetPlaylistId); }
+        catch (InvalidOperationException ex) { logger.LogWarning("Target not connected for status check: {Msg}", ex.Message); }
 
         var targetIsrcs = targetTracks.Where(t => t.Isrc != null).Select(t => t.Isrc!).ToHashSet();
         var targetNames = targetTracks.Select(t => $"{t.Name}|{t.Artist}".ToLower()).ToHashSet();

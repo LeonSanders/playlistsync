@@ -49,7 +49,7 @@ public record SyncResultDto(
     string? Error
 );
 
-public record UnmatchedTrackDto(string Name, string Artist, string SourceService);
+public record UnmatchedTrackDto(string Name, string Artist, string SourceService, string Reason);
 
 public record CreateMappingRequest(
     string SourceService,

@@ -177,22 +177,27 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         return await GetJsonApiAsync<T>(token, fullPath);
     }
 
-    // Authenticated POST
+    // Authenticated POST — countryCode injected, correct Content-Type for JSON:API
     private async Task<HttpResponseMessage> PostAsync(string userId, string path, object body)
     {
         var token = await GetAccessTokenAsync(userId);
+        var separator = path.Contains('?') ? "&" : "?";
+        var fullPath = $"{path}{separator}countryCode={_countryCode}";
+        var bodyJson = System.Text.Json.JsonSerializer.Serialize(body);
+        logger.LogDebug("Tidal POST {Path} body: {Body}", fullPath, bodyJson);
+
         var resp = await throttler.ExecuteAsync(() =>
         {
-            var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}{path}");
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}{fullPath}");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             req.Headers.Add("Accept", "application/vnd.api+json");
-            req.Content = JsonContent.Create(body);
+            req.Content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/vnd.api+json");
             return http.SendAsync(req);
         });
         if (!resp.IsSuccessStatusCode)
         {
-            var err = resp.Content.ReadAsStringAsync().Result;
-            logger.LogError("Tidal POST {Path} → {Status}: {Body}", path, resp.StatusCode, err);
+            var err = await resp.Content.ReadAsStringAsync();
+            logger.LogError("Tidal POST {Path} → {Status}: {Body}", fullPath, resp.StatusCode, err);
         }
         return resp;
     }
@@ -261,14 +266,17 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
     public async Task AddTracksAsync(string userId, string playlistId, IEnumerable<string> tidalTrackIds)
     {
-        // POST /v2/playlists/{id}/relationships/items
         foreach (var chunk in tidalTrackIds.Chunk(50))
         {
             var resp = await PostAsync(userId, $"/playlists/{playlistId}/relationships/items", new
             {
                 data = chunk.Select(id => new { type = "tracks", id }).ToArray()
             });
-            resp.EnsureSuccessStatusCode();
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                throw new Exception($"Tidal AddTracks failed ({resp.StatusCode}): {err}");
+            }
         }
     }
 
@@ -303,6 +311,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         t.Attributes?.Isrc,
         t.Attributes?.Album?.ImageUrl,
         t.Attributes?.DurationSeconds * 1000 ?? 0);
+
 
     /// Fetches any public Tidal playlist by ID.
     /// Uses the user's token if they have Tidal connected; otherwise uses client credentials.
@@ -360,7 +369,9 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
             ?? throw new Exception("Failed to parse client credentials token");
         return token.AccessToken;
     }
+
 }
+
 
 // ── JSON:API response shapes ──────────────────────────────────────────────────
 
