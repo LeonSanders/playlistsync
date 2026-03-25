@@ -492,3 +492,68 @@ body {
 /* ── dot colors for dynamic layout ── */
 .dot-tidal  { background: var(--tidal); }
 .dot-spotify { background: var(--spotify); }
+
+/* ── Import status bar ── */
+.import-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  font-size: 12px;
+  background: var(--info-bg);
+  color: var(--info);
+  border-bottom: 0.5px solid rgba(55,138,221,0.2);
+  flex-shrink: 0;
+}
+.import-bar-warn {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-bottom-color: rgba(154,96,0,0.2);
+}
+.import-bar-icon { font-size: 14px; flex-shrink: 0; }
+.import-bar strong { font-weight: 500; }
+
+/* ── Not logged in badge ── */
+.service-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.not-logged-in-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* ── Confirm disconnect dialog ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.confirm-dialog {
+  background: var(--surface);
+  border: 0.5px solid var(--border-med);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.confirm-dialog p { font-size: 14px; font-weight: 500; }
+.confirm-sub { font-size: 12px; color: var(--text-2); font-weight: 400 !important; }
+.confirm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.btn-danger {
+  background: var(--surface);
+  border-color: #e24b4a;
+  color: #e24b4a;
+}
+.btn-danger:hover { background: #fcebeb; }
