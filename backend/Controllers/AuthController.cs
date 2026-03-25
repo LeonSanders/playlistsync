@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using PlaylistSync.Services;
-using PlaylistSync.Data;
 using Microsoft.EntityFrameworkCore;
+using PlaylistSync.Data;
+using PlaylistSync.Services;
 
 namespace PlaylistSync.Controllers;
 
@@ -13,7 +13,7 @@ public class AuthController(
     AppDbContext db,
     IConfiguration config) : ControllerBase
 {
-    // GET /auth/status  — returns connection state for both services
+    // GET /auth/status
     [HttpGet("status")]
     public async Task<IActionResult> Status()
     {
@@ -29,16 +29,17 @@ public class AuthController(
         {
             userId,
             spotify = new { connected = sp != null, displayName = sp?.DisplayName },
-            tidal = new { connected = ti != null, displayName = ti?.DisplayName }
+            tidal   = new { connected = ti != null, displayName = ti?.DisplayName }
         });
     }
 
     // GET /auth/spotify/login
     [HttpGet("spotify/login")]
-    public IActionResult SpotifyLogin()
+    public async Task<IActionResult> SpotifyLogin()
     {
-        var state = Guid.NewGuid().ToString("N");
-        Response.Cookies.Append("oauth_state", state, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Lax });
+        var userId = GetOrCreateUserId();
+        var state  = await CreateOAuthStateAsync(userId, "spotify");
+        SetUserCookie(userId);
         return Redirect(spotify.GetAuthorizationUrl(state));
     }
 
@@ -46,19 +47,21 @@ public class AuthController(
     [HttpGet("spotify/callback")]
     public async Task<IActionResult> SpotifyCallback([FromQuery] string code, [FromQuery] string state)
     {
-        if (!ValidateState(state)) return BadRequest("Invalid state");
-        var userId = GetOrCreateUserId();
-        await spotify.HandleCallbackAsync(code, userId);
-        SetUserCookie(userId);
+        var oauthState = await ValidateAndConsumeStateAsync(state, "spotify");
+        if (oauthState == null) return BadRequest("Invalid or expired OAuth state");
+
+        await spotify.HandleCallbackAsync(code, oauthState.UserId);
+        SetUserCookie(oauthState.UserId);
         return Redirect(config["Frontend:Url"] + "?spotify=connected");
     }
 
     // GET /auth/tidal/login
     [HttpGet("tidal/login")]
-    public IActionResult TidalLogin()
+    public async Task<IActionResult> TidalLogin()
     {
-        var state = Guid.NewGuid().ToString("N");
-        Response.Cookies.Append("oauth_state", state, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Lax });
+        var userId = GetOrCreateUserId();
+        var state  = await CreateOAuthStateAsync(userId, "tidal");
+        SetUserCookie(userId);
         return Redirect(tidal.GetAuthorizationUrl(state));
     }
 
@@ -66,14 +69,15 @@ public class AuthController(
     [HttpGet("tidal/callback")]
     public async Task<IActionResult> TidalCallback([FromQuery] string code, [FromQuery] string state)
     {
-        if (!ValidateState(state)) return BadRequest("Invalid state");
-        var userId = GetOrCreateUserId();
-        await tidal.HandleCallbackAsync(code, userId);
-        SetUserCookie(userId);
+        var oauthState = await ValidateAndConsumeStateAsync(state, "tidal");
+        if (oauthState == null) return BadRequest("Invalid or expired OAuth state");
+
+        await tidal.HandleCallbackAsync(code, oauthState.UserId);
+        SetUserCookie(oauthState.UserId);
         return Redirect(config["Frontend:Url"] + "?tidal=connected");
     }
 
-    // DELETE /auth/{service}  — disconnect a service
+    // DELETE /auth/{service}
     [HttpDelete("{service}")]
     public async Task<IActionResult> Disconnect(string service)
     {
@@ -83,6 +87,8 @@ public class AuthController(
         if (conn != null) { db.UserConnections.Remove(conn); await db.SaveChangesAsync(); }
         return NoContent();
     }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
 
     private string GetOrCreateUserId()
     {
@@ -94,15 +100,41 @@ public class AuthController(
     private void SetUserCookie(string userId) =>
         Response.Cookies.Append("user_id", userId, new CookieOptions
         {
-            HttpOnly = true,
-            SameSite = SameSiteMode.Lax,
-            Expires = DateTimeOffset.UtcNow.AddYears(1)
+            HttpOnly  = true,
+            SameSite  = SameSiteMode.Lax,
+            Expires   = DateTimeOffset.UtcNow.AddYears(1)
         });
 
-    private bool ValidateState(string state)
+    private async Task<string> CreateOAuthStateAsync(string userId, string service)
     {
-        if (!Request.Cookies.TryGetValue("oauth_state", out var saved)) return false;
-        Response.Cookies.Delete("oauth_state");
-        return saved == state;
+        // Clean up any expired states first
+        var expired = db.OAuthStates.Where(s => s.ExpiresAt < DateTime.UtcNow);
+        db.OAuthStates.RemoveRange(expired);
+
+        var state = new OAuthState
+        {
+            State    = Guid.NewGuid().ToString("N"),
+            UserId   = userId,
+            Service  = service,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10)
+        };
+        db.OAuthStates.Add(state);
+        await db.SaveChangesAsync();
+        return state.State;
+    }
+
+    private async Task<OAuthState?> ValidateAndConsumeStateAsync(string state, string service)
+    {
+        var record = await db.OAuthStates
+            .FirstOrDefaultAsync(s =>
+                s.State   == state &&
+                s.Service == service &&
+                s.ExpiresAt > DateTime.UtcNow);
+
+        if (record == null) return null;
+
+        db.OAuthStates.Remove(record);
+        await db.SaveChangesAsync();
+        return record;
     }
 }

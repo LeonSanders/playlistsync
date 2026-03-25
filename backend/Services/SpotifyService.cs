@@ -18,10 +18,10 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
             _clientId,
             LoginRequest.ResponseType.Code)
         {
-            // Scope = new List<string> {
-            //     Scopes.PlaylistReadPrivate, Scopes.PlaylistReadCollaborative,
-            //     Scopes.PlaylistModifyPublic, Scopes.PlaylistModifyPrivate
-            // },
+            Scope = new List<string> {
+                Scopes.PlaylistReadPrivate, Scopes.PlaylistReadCollaborative,
+                Scopes.PlaylistModifyPublic, Scopes.PlaylistModifyPrivate
+            },
             State = state
         };
         return request.ToUri().ToString();
