@@ -142,14 +142,21 @@ public class SyncService(
         }).ToList();
     }
 
-    private async Task<List<TrackDto>> GetTracksAsync(string userId, string service, string playlistId) =>
-        service == "spotify"
-            ? await spotify.GetPlaylistTracksAsync(userId, playlistId)
-            : await tidal.GetPlaylistTracksAsync(userId, playlistId);
+    private async Task<List<TrackDto>> GetTracksAsync(string userId, string service, string playlistId)
+    {
+        if (service == "spotify")
+        {
+            // Use the unauthenticated fallback (client credentials) when the user
+            // hasn't connected Spotify — e.g. importing a public Spotify URL into Tidal.
+            var (_, tracks) = await spotify.GetPlaylistByIdAsync(userId, playlistId);
+            return tracks;
+        }
+        return await tidal.GetPlaylistTracksAsync(userId, playlistId);
+    }
 
     private async Task<TrackDto?> SearchTrackAsync(string userId, string service, string name, string artist, string? isrc) =>
         service == "spotify"
-            ? await spotify.SearchTrackAsync(userId, name, artist, isrc)
+            ? await spotify.SearchTrackAsync(userId, name, artist, isrc)  // has its own client-credentials fallback
             : await tidal.SearchTrackAsync(userId, name, artist, isrc);
     /// Syncs a provided list of tracks into a target service playlist.
     /// Used when the source is an imported URL — no auth needed for the source side.
@@ -172,8 +179,8 @@ public class SyncService(
 
         // Get existing tracks in target to avoid duplicates
         var existingTracks = await GetTracksAsync(userId, targetService, targetPlaylistId);
-        var existingIsrcs  = existingTracks.Where(t => t.Isrc != null).Select(t => t.Isrc!).ToHashSet();
-        var existingNames  = existingTracks.Select(t => $"{t.Name}|{t.Artist}".ToLower()).ToHashSet();
+        var existingIsrcs = existingTracks.Where(t => t.Isrc != null).Select(t => t.Isrc!).ToHashSet();
+        var existingNames = existingTracks.Select(t => $"{t.Name}|{t.Artist}".ToLower()).ToHashSet();
 
         var toAdd = sourceTracks.Where(t =>
             (t.Isrc == null || !existingIsrcs.Contains(t.Isrc)) &&

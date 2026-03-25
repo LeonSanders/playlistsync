@@ -148,7 +148,13 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
 
     public async Task<TrackDto?> SearchTrackAsync(string userId, string name, string artist, string? isrc)
     {
-        var client = await GetClientAsync(userId);
+        SpotifyClient client;
+        try { client = await GetClientAsync(userId); }
+        catch
+        {
+            client = new SpotifyClient(await new OAuthClient().RequestToken(
+                    new ClientCredentialsRequest(_clientId, _clientSecret)));
+        }
 
         if (!string.IsNullOrEmpty(isrc))
         {
@@ -177,12 +183,15 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     public async Task<(PlaylistDto metadata, List<TrackDto> tracks)> GetPlaylistByIdAsync(string userId, string playlistId)
     {
         SpotifyClient client;
-        try   { client = await GetClientAsync(userId); }
-        catch { client = new SpotifyClient(await new OAuthClient().RequestToken(
-                    new ClientCredentialsRequest(_clientId, _clientSecret))); }
+        try { client = await GetClientAsync(userId); }
+        catch
+        {
+            client = new SpotifyClient(await new OAuthClient().RequestToken(
+                    new ClientCredentialsRequest(_clientId, _clientSecret)));
+        }
 
         var playlist = await client.Playlists.Get(playlistId);
-        var pages    = await client.PaginateAll(await client.Playlists.GetItems(playlistId));
+        var pages = await client.PaginateAll(await client.Playlists.GetItems(playlistId));
 
         var metadata = new PlaylistDto(
             playlist.Id!,
@@ -193,7 +202,8 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
 
         var tracks = pages
             .Where(i => i.Track is FullTrack)
-            .Select(i => {
+            .Select(i =>
+            {
                 var t = (FullTrack)i.Track;
                 return new TrackDto(t.Id, t.Name,
                     string.Join(", ", t.Artists.Select(a => a.Name)),
