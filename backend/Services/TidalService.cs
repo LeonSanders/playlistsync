@@ -13,6 +13,8 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 {
     private readonly string _clientId = config["Tidal:ClientId"]!;
     private readonly string _redirectUri = config["Tidal:RedirectUri"]!;
+    // countryCode is required on every Tidal API call — default US, override in appsettings if needed
+    private readonly string _countryCode = config["Tidal:CountryCode"] ?? "US";
     private const string BaseUrl = "https://openapi.tidal.com/v2";
     private const string AuthUrl = "https://login.tidal.com/";
 
@@ -41,7 +43,6 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
     // ── Auth ──────────────────────────────────────────────────────────────────
 
-    // Returns (url, codeVerifier) — caller stores the verifier in OAuthState.CodeVerifier
     public (string Url, string CodeVerifier) GetAuthorizationUrl(string state)
     {
         var verifier = GenerateCodeVerifier();
@@ -60,7 +61,6 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         return (url, verifier);
     }
 
-    // codeVerifier comes from OAuthState.CodeVerifier stored at login time
     public async Task<UserConnection> HandleCallbackAsync(string code, string userId, string codeVerifier)
     {
         var tokenReq = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -83,7 +83,8 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         var tokenJson = await tokenResp.Content.ReadFromJsonAsync<TidalTokenResponse>(JsonOpts)
             ?? throw new Exception("Failed to parse Tidal token response");
 
-        var profile = await GetWithTokenAsync<TidalUserProfile>(tokenJson.AccessToken, "/users/me");
+        // GET /v2/users/me to fetch display name
+        var profile = await GetJsonApiAsync<TidalUserResource>(tokenJson.AccessToken, "/users/me");
 
         var conn = await db.UserConnections
             .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "tidal")
@@ -101,7 +102,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         return conn;
     }
 
-    // ── Token refresh ─────────────────────────────────────────────────────────
+    // ── Token management ──────────────────────────────────────────────────────
 
     private async Task<string> GetAccessTokenAsync(string userId)
     {
@@ -111,7 +112,6 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
         if (conn.ExpiresAt <= DateTime.UtcNow.AddMinutes(5))
         {
-            // Refresh uses client_id only — no secret, no PKCE verifier needed
             var req = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "refresh_token",
@@ -125,8 +125,9 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
                 logger.LogError("Tidal token refresh failed {Status}: {Body}", resp.StatusCode, err);
                 throw new Exception($"Tidal token refresh failed: {err}");
             }
-            var tokens = await resp.Content.ReadFromJsonAsync<TidalTokenResponse>(JsonOpts)!;
-            conn.AccessToken = tokens!.AccessToken;
+            var tokens = await resp.Content.ReadFromJsonAsync<TidalTokenResponse>(JsonOpts)
+                ?? throw new Exception("Failed to parse refresh response");
+            conn.AccessToken = tokens.AccessToken;
             conn.ExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
             conn.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
@@ -137,7 +138,8 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
 
-    private async Task<T?> GetWithTokenAsync<T>(string token, string path)
+    // Raw JSON:API GET — used for auth-time profile fetch where we have a raw token
+    private async Task<T?> GetJsonApiAsync<T>(string token, string path)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}{path}");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -145,23 +147,47 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         var resp = await http.SendAsync(req);
         if (!resp.IsSuccessStatusCode)
         {
-            logger.LogWarning("Tidal GET {Path} → {Status}", path, resp.StatusCode);
+            var body = await resp.Content.ReadAsStringAsync();
+            logger.LogWarning("Tidal {Path} → {Status}: {Body}", path, resp.StatusCode, body);
             return default;
         }
         return await resp.Content.ReadFromJsonAsync<T>(JsonOpts);
     }
 
-    private async Task<T?> GetAsync<T>(string userId, string path)
+    // Authenticated GET using stored token, with countryCode injected
+    private async Task<T?> GetAsync<T>(string userId, string path, string? extraQuery = null)
     {
         var token = await GetAccessTokenAsync(userId);
-        return await GetWithTokenAsync<T>(token, path);
+        var separator = path.Contains('?') ? "&" : "?";
+        var fullPath = $"{path}{separator}countryCode={_countryCode}{(extraQuery != null ? "&" + extraQuery : "")}";
+        return await GetJsonApiAsync<T>(token, fullPath);
     }
 
-    // ── Playlists / tracks ────────────────────────────────────────────────────
+    // Authenticated POST
+    private async Task<HttpResponseMessage> PostAsync(string userId, string path, object body)
+    {
+        var token = await GetAccessTokenAsync(userId);
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}{path}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Headers.Add("Accept", "application/vnd.api+json");
+        req.Content = JsonContent.Create(body);
+        var resp = await http.SendAsync(req);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var err = await resp.Content.ReadAsStringAsync();
+            logger.LogError("Tidal POST {Path} → {Status}: {Body}", path, resp.StatusCode, err);
+        }
+        return resp;
+    }
+
+    // ── Playlists ─────────────────────────────────────────────────────────────
 
     public async Task<List<PlaylistDto>> GetPlaylistsAsync(string userId, List<SyncMapping> mappings)
     {
-        var result = await GetAsync<TidalCollectionResponse<TidalPlaylist>>(userId, "/playlists/me");
+        // GET /v2/playlists?countryCode=XX&filter[owners.id]=me&include=items
+        var result = await GetAsync<TidalCollectionResponse<TidalPlaylistResource>>(
+            userId, "/playlists", "filter%5Bowners.id%5D=me");
+
         if (result?.Data == null) return [];
 
         return result.Data.Select(p =>
@@ -172,8 +198,8 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
             return new PlaylistDto(
                 p.Id,
                 p.Attributes?.Name ?? "",
-                p.Attributes?.NumberOfTracks ?? 0,
-                p.Attributes?.ImageLinks?.FirstOrDefault()?.Href,
+                p.Attributes?.NumberOfItems ?? 0,
+                p.Attributes?.Images?.FirstOrDefault()?.Url,
                 mapping != null,
                 mapping?.LastSyncedAt,
                 mapping?.LastSyncStatus ?? "never"
@@ -183,90 +209,157 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
     public async Task<List<TrackDto>> GetPlaylistTracksAsync(string userId, string playlistId)
     {
-        var result = await GetAsync<TidalCollectionResponse<TidalTrack>>(userId, $"/playlists/{playlistId}/items");
-        if (result?.Data == null) return [];
+        // GET /v2/playlists/{id}/relationships/items?countryCode=XX&include=items
+        var result = await GetAsync<TidalRelationshipResponse<TidalTrackResource>>(
+            userId, $"/playlists/{playlistId}/relationships/items", "include=items");
 
-        return result.Data.Select(t => new TrackDto(
+        // Tracks come back in the top-level `included` array
+        if (result?.Included == null) return [];
+
+        return result.Included.Select(t => new TrackDto(
             t.Id,
             t.Attributes?.Title ?? "",
             t.Attributes?.ArtistName ?? "",
-            t.Attributes?.AlbumTitle,
+            t.Attributes?.Album?.Title,
             t.Attributes?.Isrc,
-            t.Attributes?.ImageLinks?.FirstOrDefault()?.Href,
-            t.Attributes?.Duration ?? 0
+            t.Attributes?.Album?.ImageUrl,
+            t.Attributes?.DurationSeconds * 1000 ?? 0
         )).ToList();
     }
 
     public async Task<string> CreatePlaylistAsync(string userId, string name)
     {
-        var token = await GetAccessTokenAsync(userId);
-        var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/playlists");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        req.Headers.Add("Accept", "application/vnd.api+json");
-        req.Content = JsonContent.Create(new
+        var resp = await PostAsync(userId, $"/playlists?countryCode={_countryCode}", new
         {
-            data = new { type = "playlists", attributes = new { name, description = "Synced by PlaylistSync" } }
+            data = new
+            {
+                type = "playlists",
+                attributes = new { name, description = "Synced by PlaylistSync", privacy = "PRIVATE" }
+            }
         });
-        var resp = await http.SendAsync(req);
         resp.EnsureSuccessStatusCode();
-        var body = await resp.Content.ReadFromJsonAsync<TidalSingleResponse<TidalPlaylist>>(JsonOpts);
+        var body = await resp.Content.ReadFromJsonAsync<TidalSingleResponse<TidalPlaylistResource>>(JsonOpts);
         return body!.Data!.Id;
     }
 
     public async Task AddTracksAsync(string userId, string playlistId, IEnumerable<string> tidalTrackIds)
     {
-        var token = await GetAccessTokenAsync(userId);
+        // POST /v2/playlists/{id}/relationships/items
         foreach (var chunk in tidalTrackIds.Chunk(50))
         {
-            var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/playlists/{playlistId}/items");
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            req.Headers.Add("Accept", "application/vnd.api+json");
-            req.Content = JsonContent.Create(new
+            var resp = await PostAsync(userId, $"/playlists/{playlistId}/relationships/items", new
             {
                 data = chunk.Select(id => new { type = "tracks", id }).ToArray()
             });
-            var resp = await http.SendAsync(req);
             resp.EnsureSuccessStatusCode();
         }
     }
 
+    // ── Search ────────────────────────────────────────────────────────────────
+
     public async Task<TrackDto?> SearchTrackAsync(string userId, string name, string artist, string? isrc)
     {
-        var token = await GetAccessTokenAsync(userId);
-
+        // ISRC lookup: GET /v2/tracks?countryCode=XX&filter[isrc]=XX&include=artists
         if (!string.IsNullOrEmpty(isrc))
         {
-            var isrcResult = await GetWithTokenAsync<TidalCollectionResponse<TidalTrack>>(
-                token, $"/tracks?filter[isrc]={Uri.EscapeDataString(isrc)}");
+            var isrcResult = await GetAsync<TidalCollectionResponse<TidalTrackResource>>(
+                userId, "/tracks", $"filter%5Bisrc%5D={Uri.EscapeDataString(isrc)}&include=artists");
             var isrcTrack = isrcResult?.Data?.FirstOrDefault();
             if (isrcTrack != null) return MapTrack(isrcTrack);
         }
 
+        // Full-text search: GET /v2/searchresults/{query}?countryCode=XX&include=tracks
         var query = Uri.EscapeDataString($"{name} {artist}");
-        var result = await GetWithTokenAsync<TidalSearchResponse>(token, $"/search?query={query}&type=tracks&limit=5");
-        var track = result?.Tracks?.Data?.FirstOrDefault();
+        var result = await GetAsync<TidalSearchResponse>(
+            userId, $"/searchresults/{query}", "include=tracks&limit=5");
+
+        // Search returns track IDs in relationships; full data is in included[]
+        var track = result?.Included?.FirstOrDefault();
         return track == null ? null : MapTrack(track);
     }
 
-    private static TrackDto MapTrack(TidalTrack t) => new(
-        t.Id, t.Attributes?.Title ?? "", t.Attributes?.ArtistName ?? "",
-        t.Attributes?.AlbumTitle, t.Attributes?.Isrc,
-        t.Attributes?.ImageLinks?.FirstOrDefault()?.Href, t.Attributes?.Duration ?? 0);
+    private static TrackDto MapTrack(TidalTrackResource t) => new(
+        t.Id,
+        t.Attributes?.Title ?? "",
+        t.Attributes?.ArtistName ?? "",
+        t.Attributes?.Album?.Title,
+        t.Attributes?.Isrc,
+        t.Attributes?.Album?.ImageUrl,
+        t.Attributes?.DurationSeconds * 1000 ?? 0);
 }
+
+// ── JSON:API response shapes ──────────────────────────────────────────────────
 
 record TidalTokenResponse(
     [property: JsonPropertyName("access_token")] string AccessToken,
     [property: JsonPropertyName("refresh_token")] string? RefreshToken,
     [property: JsonPropertyName("expires_in")] int ExpiresIn
 );
-record TidalCollectionResponse<T>([property: JsonPropertyName("data")] List<T>? Data);
-record TidalSingleResponse<T>([property: JsonPropertyName("data")] T? Data);
-record TidalSearchResponse([property: JsonPropertyName("tracks")] TidalCollectionResponse<TidalTrack>? Tracks);
-record TidalPlaylist(string Id, string Type, TidalPlaylistAttributes? Attributes);
-record TidalPlaylistAttributes(string Name, int NumberOfTracks, List<TidalLink>? ImageLinks);
-record TidalTrack(string Id, string Type, TidalTrackAttributes? Attributes);
-record TidalTrackAttributes(string Title, string ArtistName, string? AlbumTitle, string? Isrc, int Duration, List<TidalLink>? ImageLinks);
-record TidalLink(string Href);
-record TidalUserProfile([property: JsonPropertyName("data")] TidalUserData? Data);
-record TidalUserData(string Id, TidalUserAttributes? Attributes);
-record TidalUserAttributes(string Username);
+
+// { data: [...] }
+record TidalCollectionResponse<T>(
+    [property: JsonPropertyName("data")] List<T>? Data
+);
+
+// { data: T }
+record TidalSingleResponse<T>(
+    [property: JsonPropertyName("data")] T? Data
+);
+
+// { data: [...relationships...], included: [...full resources...] }
+record TidalRelationshipResponse<T>(
+    [property: JsonPropertyName("data")] List<JsonElement>? Data,
+    [property: JsonPropertyName("included")] List<T>? Included
+);
+
+// Search returns relationships.tracks.data + included[]
+record TidalSearchResponse(
+    [property: JsonPropertyName("included")] List<TidalTrackResource>? Included
+);
+
+// ── Resource types ────────────────────────────────────────────────────────────
+
+record TidalPlaylistResource(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("attributes")] TidalPlaylistAttributes? Attributes
+);
+record TidalPlaylistAttributes(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("numberOfItems")] int? NumberOfItems,
+    [property: JsonPropertyName("images")] List<TidalImage>? Images
+);
+
+record TidalTrackResource(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("attributes")] TidalTrackAttributes? Attributes
+);
+record TidalTrackAttributes(
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("artistName")] string ArtistName,
+    [property: JsonPropertyName("isrc")] string? Isrc,
+    [property: JsonPropertyName("durationSeconds")] int? DurationSeconds,
+    [property: JsonPropertyName("album")] TidalAlbumRef? Album
+);
+record TidalAlbumRef(
+    [property: JsonPropertyName("title")] string? Title,
+    [property: JsonPropertyName("imageUrl")] string? ImageUrl
+);
+record TidalImage(
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("width")] int Width,
+    [property: JsonPropertyName("height")] int Height
+);
+
+// /users/me
+record TidalUserResource(
+    [property: JsonPropertyName("data")] TidalUserData? Data
+);
+record TidalUserData(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("attributes")] TidalUserAttributes? Attributes
+);
+record TidalUserAttributes(
+    [property: JsonPropertyName("username")] string Username
+);

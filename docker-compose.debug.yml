@@ -12,7 +12,7 @@ services:
       - nuget-cache:/root/.nuget/packages
     ports:
       - "5001:5001"
-      - "2222:2222" # vsdbg remote debugger port
+      - "2222:2222"     # vsdbg remote debugger port
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,10 +22,10 @@ services:
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=playlistsync;Username=postgres;Password=postgres"
       Spotify__ClientId: "${SPOTIFY_CLIENT_ID}"
       Spotify__ClientSecret: "${SPOTIFY_CLIENT_SECRET}"
-      Spotify__RedirectUri: "${SPOTIFY_REDIRECT_URI:-http://127.0.0.1:5001/auth/spotify/callback}"
+      Spotify__RedirectUri: "${SPOTIFY_REDIRECT_URI:-http://localhost:5001/auth/spotify/callback}"
       Tidal__ClientId: "${TIDAL_CLIENT_ID}"
       Tidal__ClientSecret: "${TIDAL_CLIENT_SECRET}"
-      Tidal__RedirectUri: "${TIDAL_REDIRECT_URI:-http://127.0.0.1:5001/auth/tidal/callback}"
+      Tidal__RedirectUri: "${TIDAL_REDIRECT_URI:-http://localhost:5001/auth/tidal/callback}"
       Frontend__Url: "http://localhost:5173"
       Logging__LogLevel__Default: Debug
       Logging__LogLevel__Microsoft.AspNetCore: Information
