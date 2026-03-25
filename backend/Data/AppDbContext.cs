@@ -7,6 +7,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserConnection> UserConnections => Set<UserConnection>();
     public DbSet<SyncMapping> SyncMappings => Set<SyncMapping>();
     public DbSet<SyncLog> SyncLogs => Set<SyncLog>();
+    public DbSet<OAuthState> OAuthStates => Set<OAuthState>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -62,3 +63,12 @@ public class SyncLog
 
 public enum SyncDirection { SourceToTarget, TargetToSource, Bidirectional }
 public enum SyncTrigger { Manual, Scheduled, Webhook }
+
+public class OAuthState
+{
+    public int Id { get; set; }
+    public string State { get; set; } = "";       // the random value sent to the provider
+    public string UserId { get; set; } = "";       // so we know who to attach the token to
+    public string Service { get; set; } = "";      // "spotify" | "tidal"
+    public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddMinutes(10);
+}
