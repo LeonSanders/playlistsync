@@ -65,7 +65,7 @@
         "pipeArgs": [
           "exec",
           "-i",
-          "backend-1"
+          "playlistsync-backend-1"
         ],
         "debuggerPath": "/vsdbg/vsdbg",
         "pipeCwd": "${workspaceFolder}"

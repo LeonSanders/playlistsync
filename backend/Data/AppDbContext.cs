@@ -71,4 +71,5 @@ public class OAuthState
     public string UserId { get; set; } = "";       // so we know who to attach the token to
     public string Service { get; set; } = "";      // "spotify" | "tidal"
     public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddMinutes(10);
+    public string? CodeVerifier { get; set; }  // PKCE — only used for Tidal
 }

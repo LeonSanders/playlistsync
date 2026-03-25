@@ -1,8 +1,10 @@
 {
   "editor.formatOnSave": true,
-  "editor.rulers": [120],
+  "editor.rulers": [
+    120
+  ],
   "[csharp]": {
-    "editor.defaultFormatter": "ms-dotnettools.csdevkit",
+    "editor.defaultFormatter": "ms-dotnettools.csharp",
     "editor.tabSize": 4,
     "editor.insertSpaces": true
   },
@@ -31,6 +33,6 @@
   },
   "omnisharp.enableRoslynAnalyzers": true,
   "omnisharp.enableEditorConfigSupport": true,
-  "dotnet.inlayHints.enableInlayHintsForParameters": true,
-  "csharp.inlayHints.enableInlayHintsForTypes": false
+  "csharp.inlayHints.parameters.enabled": true,
+  "csharp.inlayHints.types.enabled": false
 }

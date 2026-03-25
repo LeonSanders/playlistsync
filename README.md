@@ -66,7 +66,7 @@ dotnet user-secrets set "Tidal:ClientSecret" "your_secret"
 
 # You need a local Postgres instance — update ConnectionStrings:Postgres in appsettings.json
 dotnet run
-# Runs on http://localhost:5001
+# Runs on http://localhost:5000
 ```
 
 **Frontend**
@@ -75,7 +75,7 @@ cd frontend
 npm install
 npm run dev
 # Runs on http://localhost:5173
-# Vite proxies /api and /auth → localhost:5001
+# Vite proxies /api and /auth → localhost:5000
 ```
 
 ---
@@ -120,7 +120,7 @@ For bidirectional sync, the engine diffs both sides by ISRC and adds each side's
 
 ### Hangfire dashboard
 
-Available at http://localhost:5001/hangfire — shows job history, retries, and the recurring job schedule.
+Available at http://localhost:5000/hangfire — shows job history, retries, and the recurring job schedule.
 
 ---
 

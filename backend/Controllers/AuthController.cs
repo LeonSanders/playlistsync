@@ -29,7 +29,7 @@ public class AuthController(
         {
             userId,
             spotify = new { connected = sp != null, displayName = sp?.DisplayName },
-            tidal   = new { connected = ti != null, displayName = ti?.DisplayName }
+            tidal = new { connected = ti != null, displayName = ti?.DisplayName }
         });
     }
 
@@ -38,7 +38,7 @@ public class AuthController(
     public async Task<IActionResult> SpotifyLogin()
     {
         var userId = GetOrCreateUserId();
-        var state  = await CreateOAuthStateAsync(userId, "spotify");
+        var state = await CreateOAuthStateAsync(userId, "spotify", codeVerifier: null);
         SetUserCookie(userId);
         return Redirect(spotify.GetAuthorizationUrl(state));
     }
@@ -60,9 +60,13 @@ public class AuthController(
     public async Task<IActionResult> TidalLogin()
     {
         var userId = GetOrCreateUserId();
-        var state  = await CreateOAuthStateAsync(userId, "tidal");
+        var state = Guid.NewGuid().ToString("N");
+
+        // PKCE: generate verifier here, store it alongside the state
+        var (url, codeVerifier) = tidal.GetAuthorizationUrl(state);
+        await CreateOAuthStateAsync(userId, "tidal", codeVerifier, state);
         SetUserCookie(userId);
-        return Redirect(tidal.GetAuthorizationUrl(state));
+        return Redirect(url);
     }
 
     // GET /auth/tidal/callback
@@ -72,7 +76,10 @@ public class AuthController(
         var oauthState = await ValidateAndConsumeStateAsync(state, "tidal");
         if (oauthState == null) return BadRequest("Invalid or expired OAuth state");
 
-        await tidal.HandleCallbackAsync(code, oauthState.UserId);
+        if (string.IsNullOrEmpty(oauthState.CodeVerifier))
+            return BadRequest("Missing PKCE code verifier");
+
+        await tidal.HandleCallbackAsync(code, oauthState.UserId, oauthState.CodeVerifier);
         SetUserCookie(oauthState.UserId);
         return Redirect(config["Frontend:Url"] + "?tidal=connected");
     }
@@ -88,7 +95,7 @@ public class AuthController(
         return NoContent();
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private string GetOrCreateUserId()
     {
@@ -100,39 +107,40 @@ public class AuthController(
     private void SetUserCookie(string userId) =>
         Response.Cookies.Append("user_id", userId, new CookieOptions
         {
-            HttpOnly  = true,
-            SameSite  = SameSiteMode.Lax,
-            Expires   = DateTimeOffset.UtcNow.AddYears(1)
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTimeOffset.UtcNow.AddYears(1)
         });
 
-    private async Task<string> CreateOAuthStateAsync(string userId, string service)
+    // Overload for Spotify (no PKCE — generates its own state)
+    private Task<string> CreateOAuthStateAsync(string userId, string service, string? codeVerifier) =>
+        CreateOAuthStateAsync(userId, service, codeVerifier, Guid.NewGuid().ToString("N"));
+
+    private async Task<string> CreateOAuthStateAsync(string userId, string service, string? codeVerifier, string state)
     {
-        // Clean up any expired states first
         var expired = db.OAuthStates.Where(s => s.ExpiresAt < DateTime.UtcNow);
         db.OAuthStates.RemoveRange(expired);
 
-        var state = new OAuthState
+        db.OAuthStates.Add(new OAuthState
         {
-            State    = Guid.NewGuid().ToString("N"),
-            UserId   = userId,
-            Service  = service,
+            State = state,
+            UserId = userId,
+            Service = service,
+            CodeVerifier = codeVerifier,
             ExpiresAt = DateTime.UtcNow.AddMinutes(10)
-        };
-        db.OAuthStates.Add(state);
+        });
         await db.SaveChangesAsync();
-        return state.State;
+        return state;
     }
 
     private async Task<OAuthState?> ValidateAndConsumeStateAsync(string state, string service)
     {
-        var record = await db.OAuthStates
-            .FirstOrDefaultAsync(s =>
-                s.State   == state &&
-                s.Service == service &&
-                s.ExpiresAt > DateTime.UtcNow);
+        var record = await db.OAuthStates.FirstOrDefaultAsync(s =>
+            s.State == state &&
+            s.Service == service &&
+            s.ExpiresAt > DateTime.UtcNow);
 
         if (record == null) return null;
-
         db.OAuthStates.Remove(record);
         await db.SaveChangesAsync();
         return record;

@@ -1,4 +1,6 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlaylistSync.Data;
@@ -7,13 +9,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PlaylistSync.Services;
 
-public class TidalService(IConfiguration config, AppDbContext db, HttpClient http)
+public class TidalService(IConfiguration config, AppDbContext db, HttpClient http, ILogger<TidalService> logger)
 {
     private readonly string _clientId = config["Tidal:ClientId"]!;
-    private readonly string _clientSecret = config["Tidal:ClientSecret"]!;
     private readonly string _redirectUri = config["Tidal:RedirectUri"]!;
     private const string BaseUrl = "https://openapi.tidal.com/v2";
-    private const string AuthUrl = "https://login.tidal.com";
+    private const string AuthUrl = "https://login.tidal.com/";
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -21,15 +22,46 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public string GetAuthorizationUrl(string state)
+    // ── PKCE helpers ──────────────────────────────────────────────────────────
+
+    public static string GenerateCodeVerifier()
     {
-        var scopes = "playlists.read playlists.write user.profile.read";
-        var url = $"{AuthUrl}/authorize?response_type=code&client_id={Uri.EscapeDataString(_clientId)}" +
-               $"&redirect_uri={Uri.EscapeDataString(_redirectUri)}&scope={Uri.EscapeDataString(scopes)}&state={state}";
-        return url;
+        var bytes = RandomNumberGenerator.GetBytes(64);
+        return Base64UrlEncode(bytes);
     }
 
-    public async Task<UserConnection> HandleCallbackAsync(string code, string userId)
+    public static string GenerateCodeChallenge(string verifier)
+    {
+        var bytes = SHA256.HashData(Encoding.ASCII.GetBytes(verifier));
+        return Base64UrlEncode(bytes);
+    }
+
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+
+    // Returns (url, codeVerifier) — caller stores the verifier in OAuthState.CodeVerifier
+    public (string Url, string CodeVerifier) GetAuthorizationUrl(string state)
+    {
+        var verifier = GenerateCodeVerifier();
+        var challenge = GenerateCodeChallenge(verifier);
+
+        var url = $"{AuthUrl}/authorize"
+            + $"?response_type=code"
+            + $"&client_id={Uri.EscapeDataString(_clientId)}"
+            + $"&redirect_uri={Uri.EscapeDataString(_redirectUri)}"
+            + $"&scope={Uri.EscapeDataString("playlists.read playlists.write user.read")}"
+            + $"&code_challenge={Uri.EscapeDataString(challenge)}"
+            + $"&code_challenge_method=S256"
+            + $"&state={Uri.EscapeDataString(state)}";
+
+        logger.LogDebug("Tidal auth URL: {Url}", url);
+        return (url, verifier);
+    }
+
+    // codeVerifier comes from OAuthState.CodeVerifier stored at login time
+    public async Task<UserConnection> HandleCallbackAsync(string code, string userId, string codeVerifier)
     {
         var tokenReq = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -37,11 +69,17 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
             ["code"] = code,
             ["redirect_uri"] = _redirectUri,
             ["client_id"] = _clientId,
-            ["client_secret"] = _clientSecret
+            ["code_verifier"] = codeVerifier,
         });
 
         var tokenResp = await http.PostAsync($"{AuthUrl}/token", tokenReq);
-        tokenResp.EnsureSuccessStatusCode();
+        if (!tokenResp.IsSuccessStatusCode)
+        {
+            var err = await tokenResp.Content.ReadAsStringAsync();
+            logger.LogError("Tidal token exchange failed {Status}: {Body}", tokenResp.StatusCode, err);
+            throw new Exception($"Tidal token exchange failed ({tokenResp.StatusCode}): {err}");
+        }
+
         var tokenJson = await tokenResp.Content.ReadFromJsonAsync<TidalTokenResponse>(JsonOpts)
             ?? throw new Exception("Failed to parse Tidal token response");
 
@@ -63,6 +101,8 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         return conn;
     }
 
+    // ── Token refresh ─────────────────────────────────────────────────────────
+
     private async Task<string> GetAccessTokenAsync(string userId)
     {
         var conn = await db.UserConnections
@@ -71,15 +111,20 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
         if (conn.ExpiresAt <= DateTime.UtcNow.AddMinutes(5))
         {
-            var refreshReq = new FormUrlEncodedContent(new Dictionary<string, string>
+            // Refresh uses client_id only — no secret, no PKCE verifier needed
+            var req = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "refresh_token",
                 ["refresh_token"] = conn.RefreshToken,
                 ["client_id"] = _clientId,
-                ["client_secret"] = _clientSecret
             });
-            var resp = await http.PostAsync($"{AuthUrl}/token", refreshReq);
-            resp.EnsureSuccessStatusCode();
+            var resp = await http.PostAsync($"{AuthUrl}/token", req);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                logger.LogError("Tidal token refresh failed {Status}: {Body}", resp.StatusCode, err);
+                throw new Exception($"Tidal token refresh failed: {err}");
+            }
             var tokens = await resp.Content.ReadFromJsonAsync<TidalTokenResponse>(JsonOpts)!;
             conn.AccessToken = tokens!.AccessToken;
             conn.ExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
@@ -90,13 +135,19 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         return conn.AccessToken;
     }
 
+    // ── HTTP helpers ──────────────────────────────────────────────────────────
+
     private async Task<T?> GetWithTokenAsync<T>(string token, string path)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}{path}");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Headers.Add("Accept", "application/vnd.api+json");
         var resp = await http.SendAsync(req);
-        if (!resp.IsSuccessStatusCode) return default;
+        if (!resp.IsSuccessStatusCode)
+        {
+            logger.LogWarning("Tidal GET {Path} → {Status}", path, resp.StatusCode);
+            return default;
+        }
         return await resp.Content.ReadFromJsonAsync<T>(JsonOpts);
     }
 
@@ -105,6 +156,8 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         var token = await GetAccessTokenAsync(userId);
         return await GetWithTokenAsync<T>(token, path);
     }
+
+    // ── Playlists / tracks ────────────────────────────────────────────────────
 
     public async Task<List<PlaylistDto>> GetPlaylistsAsync(string userId, List<SyncMapping> mappings)
     {
@@ -186,8 +239,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
             var isrcResult = await GetWithTokenAsync<TidalCollectionResponse<TidalTrack>>(
                 token, $"/tracks?filter[isrc]={Uri.EscapeDataString(isrc)}");
             var isrcTrack = isrcResult?.Data?.FirstOrDefault();
-            if (isrcTrack != null)
-                return MapTrack(isrcTrack);
+            if (isrcTrack != null) return MapTrack(isrcTrack);
         }
 
         var query = Uri.EscapeDataString($"{name} {artist}");
@@ -210,7 +262,6 @@ record TidalTokenResponse(
 record TidalCollectionResponse<T>([property: JsonPropertyName("data")] List<T>? Data);
 record TidalSingleResponse<T>([property: JsonPropertyName("data")] T? Data);
 record TidalSearchResponse([property: JsonPropertyName("tracks")] TidalCollectionResponse<TidalTrack>? Tracks);
-record TidalResource(string Id, string Type);
 record TidalPlaylist(string Id, string Type, TidalPlaylistAttributes? Attributes);
 record TidalPlaylistAttributes(string Name, int NumberOfTracks, List<TidalLink>? ImageLinks);
 record TidalTrack(string Id, string Type, TidalTrackAttributes? Attributes);

@@ -8,6 +8,6 @@ RUN dotnet publish -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app/publish .
-EXPOSE 5000
+EXPOSE 5001
 ENV ASPNETCORE_URLS=http://+:5001
 ENTRYPOINT ["dotnet", "PlaylistSync.dll"]
