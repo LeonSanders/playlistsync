@@ -1,7 +1,6 @@
 using Hangfire;
 using Hangfire.InMemory;
 using Hangfire.PostgreSql;
-using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using PlaylistSync.Data;
 using PlaylistSync.Jobs;
@@ -58,25 +57,6 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 var app = builder.Build();
 
-
-app.UseExceptionHandler(err => err.Run(async ctx =>
-{
-    var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
-    ctx.Response.ContentType = "application/json";
-    ctx.Response.StatusCode = ex switch
-    {
-        InvalidOperationException e when e.Message == "Spotify not connected" => 503,
-        InvalidOperationException e when e.Message == "Tidal not connected" => 503,
-        InvalidOperationException => 400,
-        _ => 500
-    };
-    await ctx.Response.WriteAsJsonAsync(new
-    {
-        error = ctx.Response.StatusCode == 503 ? "service_disconnected" : "server_error",
-        message = ex?.Message ?? "An unexpected error occurred"
-    });
-}));
-
 if (!isTest)
 {
     using var scope = app.Services.CreateScope();
@@ -110,8 +90,8 @@ if (!isTest)
         j => j.RunAllPendingAsync(),
         Cron.Hourly);
 
-
 app.Run();
 
 // Expose Program class for WebApplicationFactory in tests
 public partial class Program { }
+
