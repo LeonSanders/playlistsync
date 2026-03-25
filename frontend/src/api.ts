@@ -58,6 +58,8 @@ export const api = {
       targetPlaylistId: string
       targetPlaylistName: string
       direction: string
+      sourceService?: string
+      sourcePlaylistId?: string
     }) => req<import('./types').SyncResult>(`${base}/sync/from-tracks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -169,15 +169,26 @@ public class SyncService(
         service == "spotify"
             ? await spotify.SearchTrackAsync(userId, name, artist, isrc)
             : await tidal.SearchTrackAsync(userId, name, artist, isrc);
-    /// Syncs a provided list of tracks into a target service playlist.
-    /// Used when the source is an imported URL — no auth needed for the source side.
+    /// Syncs tracks into a target service playlist.
+    /// If sourceTracks is empty and sourceService/sourcePlaylistId are provided,
+    /// fetches tracks from the source service directly (no URL import needed).
     public async Task<SyncResultDto> SyncFromTracksAsync(
         string userId,
         List<TrackDto> sourceTracks,
         string targetService,
         string targetPlaylistId,
-        string targetPlaylistName)
+        string targetPlaylistName,
+        string? sourceService = null,
+        string? sourcePlaylistId = null)
     {
+        // Fetch source tracks from service if not provided directly
+        if (sourceTracks.Count == 0 && !string.IsNullOrEmpty(sourceService) && !string.IsNullOrEmpty(sourcePlaylistId))
+        {
+            sourceTracks = await GetTracksAsync(userId, sourceService, sourcePlaylistId);
+            logger.LogInformation("Fetched {Count} tracks from {Service}/{Playlist}",
+                sourceTracks.Count, sourceService, sourcePlaylistId);
+        }
+
         // Create target playlist if no ID provided
         if (string.IsNullOrEmpty(targetPlaylistId))
         {
@@ -188,7 +199,7 @@ public class SyncService(
                 targetService, targetPlaylistName, targetPlaylistId);
         }
 
-        // Get existing tracks in target to avoid duplicates
+        // Avoid duplicates
         var existingTracks = await GetTracksAsync(userId, targetService, targetPlaylistId);
         var existingIsrcs  = existingTracks.Where(t => t.Isrc != null).Select(t => t.Isrc!).ToHashSet();
         var existingNames  = existingTracks.Select(t => $"{t.Name}|{t.Artist}".ToLower()).ToHashSet();
@@ -200,14 +211,7 @@ public class SyncService(
 
         var result = await AddTracksToServiceAsync(userId, targetService, targetPlaylistId, toAdd);
 
-        return new SyncResultDto(
-            true,
-            result.added,
-            0,
-            result.skipped,
-            result.unmatched.Count,
-            result.unmatched,
-            null);
+        return new SyncResultDto(true, result.added, 0, result.skipped, result.unmatched.Count, result.unmatched, null);
     }
 
 }

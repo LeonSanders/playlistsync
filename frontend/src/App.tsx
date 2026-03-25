@@ -82,7 +82,11 @@ export default function App() {
     ? (importTargetService === layout.left ? selectedLeft : selectedRight)
     : null
   const importTargetConnected = importTargetService ? (status?.[importTargetService]?.connected ?? false) : false
-  const syncEnabled = (!importedPlaylist && !!activeMapping) || (!!importedPlaylist && importTargetConnected)
+  // Can sync if: existing mapping, OR source+target both selected, OR import with target connected
+  const sourceSelected = selectedLeft !== null
+  const targetServiceConnected = status?.[layout.right]?.connected ?? false
+  const syncEnabled = (!importedPlaylist && (!!activeMapping || (sourceSelected && targetServiceConnected)))
+    || (!!importedPlaylist && importTargetConnected)
 
   // Simulate progress during Tidal sync (we know throttle rate)
   const startProgressSimulation = (trackCount: number, targetService: string) => {
@@ -148,9 +152,33 @@ export default function App() {
         })
         stopProgressSimulation()
         setSyncResult(result)
+        if (result.success) {
+          showToast(`Synced: +${result.tracksAdded} tracks${result.tracksSkipped ? `, ${result.tracksSkipped} skipped` : ''}`)
+          await loadAll()   // refresh playlists so newly created one appears
+        } else {
+          showToast(result.error ?? 'Sync failed', 'error')
+        }
+        return
+      }
+      if (!activeMapping && selectedLeft) {
+        // No mapping yet — fetch source tracks and sync into target (creates new playlist if no target selected)
+        const targetSvc = layout.right
+        startProgressSimulation(selectedLeft.trackCount, targetSvc)
+        const result = await api.sync.syncFromTracks({
+          sourceTracks:       [],   // empty = backend will fetch from service using userId + playlistId
+          targetService:      targetSvc,
+          targetPlaylistId:   selectedRight?.id ?? '',
+          targetPlaylistName: selectedLeft.name,
+          direction:          'sourceToTarget',
+          sourceService:      layout.left,
+          sourcePlaylistId:   selectedLeft.id,
+        })
+        stopProgressSimulation()
+        setSyncResult(result)
         result.success
           ? showToast(`Synced: +${result.tracksAdded} tracks${result.tracksSkipped ? `, ${result.tracksSkipped} skipped` : ''}`)
           : showToast(result.error ?? 'Sync failed', 'error')
+        await loadAll()
         return
       }
       if (!activeMapping) return

@@ -120,7 +120,9 @@ public class SyncController(
             req.SourceTracks,
             req.TargetService,
             req.TargetPlaylistId,
-            req.TargetPlaylistName);
+            req.TargetPlaylistName,
+            req.SourceService,
+            req.SourcePlaylistId);
         return Ok(result);
     }
 

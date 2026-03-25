@@ -72,7 +72,9 @@ public record ConnectionStatusDto(
 public record SyncFromTracksRequest(
     List<TrackDto> SourceTracks,
     string TargetService,
-    string TargetPlaylistId,   // empty string = create a new playlist
-    string TargetPlaylistName, // used when creating a new playlist
-    string Direction
+    string TargetPlaylistId,    // empty = create a new playlist
+    string TargetPlaylistName,  // used when creating
+    string Direction,
+    string? SourceService = null,      // if set + SourceTracks empty, fetch from service
+    string? SourcePlaylistId = null
 );
