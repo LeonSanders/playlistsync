@@ -52,8 +52,10 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var frontendUrl = builder.Configuration["Frontend:Url"] ?? "http://localhost:5173";
-builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
-    p.WithOrigins(frontendUrl).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+// CORS only needed in dev (when frontend runs on a different port)
+if (!builder.Environment.IsProduction())
+    builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+        p.WithOrigins(frontendUrl).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
 
@@ -80,9 +82,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseCors();
+if (!app.Environment.IsProduction())
+    app.UseCors();
+
+// Serve React from wwwroot in production
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapControllers();
 app.MapHangfireDashboard("/hangfire");
+
+// SPA fallback — return index.html for any non-API route so React Router works
+app.MapFallbackToFile("index.html");
 
 if (!isTest)
     RecurringJob.AddOrUpdate<PlaylistSyncJob>(

@@ -5,8 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Dev only: proxy API calls to the local backend
     proxy: {
-      '/api': { target: 'http://localhost:5001', changeOrigin: true, secure: false },
+      '/api':  { target: 'http://localhost:5001', changeOrigin: true, secure: false },
       '/auth': { target: 'http://localhost:5001', changeOrigin: true, secure: false },
     }
   }

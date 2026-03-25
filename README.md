@@ -148,3 +148,62 @@ The architecture is designed for this:
 4. Add a new pill + playlist panel to the React frontend.
 
 The sync engine itself doesn't need to change — it operates on `TrackDto` objects and calls the service layer by name.
+
+---
+
+## Deploying to Railway (single container)
+
+### 1. Push to GitHub
+
+```bash
+git init && git add . && git commit -m "initial"
+# create a repo on github.com, then:
+git remote add origin https://github.com/you/playlistsync.git
+git push -u origin main
+```
+
+### 2. Create app on Railway
+
+1. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
+2. Select your repo — Railway will detect the root `Dockerfile` automatically
+3. Add a **PostgreSQL** plugin (Database → Add → PostgreSQL)
+
+### 3. Set environment variables
+
+In Railway → your service → Variables, add:
+
+```
+SPOTIFY_CLIENT_ID=...
+SPOTIFY_CLIENT_SECRET=...
+SPOTIFY_REDIRECT_URI=https://your-app.up.railway.app/auth/spotify/callback
+TIDAL_CLIENT_ID=...
+TIDAL_REDIRECT_URI=https://your-app.up.railway.app/auth/tidal/callback
+APP_URL=https://your-app.up.railway.app
+ConnectionStrings__Postgres=${{Postgres.DATABASE_URL}}
+ASPNETCORE_ENVIRONMENT=Production
+```
+
+Railway sets the subdomain under **Settings → Networking → Generate Domain** — do this first so you know the URL before setting the redirect URIs.
+
+### 4. Register redirect URIs
+
+Add these to your Spotify and Tidal developer dashboards:
+```
+https://your-app.up.railway.app/auth/spotify/callback
+https://your-app.up.railway.app/auth/tidal/callback
+```
+
+### 5. Add test users (Spotify)
+
+Spotify apps in Development Mode are limited to 25 users.  
+Go to your Spotify app → **Users and Access** → add each friend's Spotify email.
+
+### Local production test
+
+To test the single-container build locally before deploying:
+
+```bash
+cp .env.example .env  # fill in your values
+docker compose up --build
+# visit http://localhost:8080
+```

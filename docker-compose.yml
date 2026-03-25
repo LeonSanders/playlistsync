@@ -16,32 +16,26 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
-    build: ./backend
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "8080:8080"
     environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=playlistsync;Username=postgres;Password=postgres"
       Spotify__ClientId: "${SPOTIFY_CLIENT_ID}"
       Spotify__ClientSecret: "${SPOTIFY_CLIENT_SECRET}"
-      Spotify__RedirectUri: "${SPOTIFY_REDIRECT_URI:-http://localhost/auth/spotify/callback}"
+      Spotify__RedirectUri: "${SPOTIFY_REDIRECT_URI}"
       Tidal__ClientId: "${TIDAL_CLIENT_ID}"
-      Tidal__ClientSecret: "${TIDAL_CLIENT_SECRET}"
-      Tidal__RedirectUri: "${TIDAL_REDIRECT_URI:-http://localhost/auth/tidal/callback}"
-      Frontend__Url: "${FRONTEND_URL:-http://localhost}"
-      ASPNETCORE_ENVIRONMENT: Production
-    ports:
-      - "5001:5001"
-
-  frontend:
-    build: ./frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    ports:
-      - "80:80"
+      Tidal__RedirectUri: "${TIDAL_REDIRECT_URI}"
+      Frontend__Url: "${APP_URL}"
 
 volumes:
   pgdata:
