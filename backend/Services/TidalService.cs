@@ -9,14 +9,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PlaylistSync.Services;
 
-public class TidalService(IConfiguration config, AppDbContext db, HttpClient http, ILogger<TidalService> logger)
+public class TidalService(IConfiguration config, AppDbContext db, HttpClient http, ILogger<TidalService> logger, TidalThrottler throttler)
 {
     private readonly string _clientId = config["Tidal:ClientId"]!;
     private readonly string _redirectUri = config["Tidal:RedirectUri"]!;
     // countryCode is required on every Tidal API call — default US, override in appsettings if needed
     private readonly string _countryCode = config["Tidal:CountryCode"] ?? "US";
+    private readonly IConfiguration _config = config;
     private const string BaseUrl = "https://openapi.tidal.com/v2";
-    private const string AuthUrl = "https://login.tidal.com/";
+    private const string AuthUrl = "https://login.tidal.com";
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -141,10 +142,13 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
     // Raw JSON:API GET — used for auth-time profile fetch where we have a raw token
     private async Task<T?> GetJsonApiAsync<T>(string token, string path)
     {
-        var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}{path}");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        req.Headers.Add("Accept", "application/vnd.api+json");
-        var resp = await http.SendAsync(req);
+        var resp = await throttler.ExecuteAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}{path}");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            req.Headers.Add("Accept", "application/vnd.api+json");
+            return http.SendAsync(req);
+        });
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync();
@@ -167,14 +171,17 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
     private async Task<HttpResponseMessage> PostAsync(string userId, string path, object body)
     {
         var token = await GetAccessTokenAsync(userId);
-        var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}{path}");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        req.Headers.Add("Accept", "application/vnd.api+json");
-        req.Content = JsonContent.Create(body);
-        var resp = await http.SendAsync(req);
+        var resp = await throttler.ExecuteAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}{path}");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            req.Headers.Add("Accept", "application/vnd.api+json");
+            req.Content = JsonContent.Create(body);
+            return http.SendAsync(req);
+        });
         if (!resp.IsSuccessStatusCode)
         {
-            var err = await resp.Content.ReadAsStringAsync();
+            var err = resp.Content.ReadAsStringAsync().Result;
             logger.LogError("Tidal POST {Path} → {Status}: {Body}", path, resp.StatusCode, err);
         }
         return resp;
@@ -286,7 +293,65 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         t.Attributes?.Isrc,
         t.Attributes?.Album?.ImageUrl,
         t.Attributes?.DurationSeconds * 1000 ?? 0);
+
+    /// Fetches any public Tidal playlist by ID.
+    /// Uses the user's token if they have Tidal connected; otherwise uses client credentials.
+    public async Task<(PlaylistDto metadata, List<TrackDto> tracks)> GetPlaylistByIdAsync(string userId, string playlistId)
+    {
+        string token;
+        try { token = await GetAccessTokenAsync(userId); }
+        catch { token = await GetClientCredentialsTokenAsync(); }
+
+        var playlist = await GetJsonApiAsync<TidalSingleResponse<TidalPlaylistResource>>(
+            token, $"/playlists/{playlistId}?countryCode={_countryCode}");
+
+        var items = await GetJsonApiAsync<TidalRelationshipResponse<TidalTrackResource>>(
+            token, $"/playlists/{playlistId}/relationships/items?countryCode={_countryCode}&include=items");
+
+        var metadata = new PlaylistDto(
+            playlistId,
+            playlist?.Data?.Attributes?.Name ?? "Unknown Playlist",
+            playlist?.Data?.Attributes?.NumberOfItems ?? 0,
+            playlist?.Data?.Attributes?.Images?.FirstOrDefault()?.Url,
+            false, null, "never");
+
+        var tracks = items?.Included?.Select(t => new TrackDto(
+            t.Id,
+            t.Attributes?.Title ?? "",
+            t.Attributes?.ArtistName ?? "",
+            t.Attributes?.Album?.Title,
+            t.Attributes?.Isrc,
+            t.Attributes?.Album?.ImageUrl,
+            t.Attributes?.DurationSeconds * 1000 ?? 0
+        )).ToList() ?? [];
+
+        return (metadata, tracks);
+    }
+
+    /// Gets an app-level token using client credentials — for public catalog access
+    /// without a user login. Tidal supports this for read-only catalog endpoints.
+    private async Task<string> GetClientCredentialsTokenAsync()
+    {
+        var clientSecret = _config["Tidal:ClientSecret"];
+        if (string.IsNullOrEmpty(clientSecret))
+            throw new InvalidOperationException(
+                "Tidal client credentials not configured. " +
+                "Set Tidal:ClientSecret in appsettings to enable public playlist import.");
+
+        var req = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = _clientId,
+            ["client_secret"] = clientSecret,
+        });
+        var resp = await http.PostAsync($"{AuthUrl}oauth2/token", req);
+        resp.EnsureSuccessStatusCode();
+        var token = await resp.Content.ReadFromJsonAsync<TidalTokenResponse>(JsonOpts)
+            ?? throw new Exception("Failed to parse client credentials token");
+        return token.AccessToken;
+    }
 }
+
 
 // ── JSON:API response shapes ──────────────────────────────────────────────────
 

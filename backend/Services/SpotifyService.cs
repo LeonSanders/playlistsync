@@ -172,4 +172,38 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
             track.Album?.Name, null,
             track.Album?.Images?.FirstOrDefault()?.Url, track.DurationMs);
     }
+    /// Fetches a playlist by ID — works even if it's not the user's own playlist.
+    /// Falls back to app credentials if the user doesn't have Spotify connected.
+    public async Task<(PlaylistDto metadata, List<TrackDto> tracks)> GetPlaylistByIdAsync(string userId, string playlistId)
+    {
+        SpotifyClient client;
+        try   { client = await GetClientAsync(userId); }
+        catch { client = new SpotifyClient(await new OAuthClient().RequestToken(
+                    new ClientCredentialsRequest(_clientId, _clientSecret))); }
+
+        var playlist = await client.Playlists.Get(playlistId);
+        var pages    = await client.PaginateAll(await client.Playlists.GetItems(playlistId));
+
+        var metadata = new PlaylistDto(
+            playlist.Id!,
+            playlist.Name!,
+            playlist.Tracks?.Total ?? 0,
+            playlist.Images?.FirstOrDefault()?.Url,
+            false, null, "never");
+
+        var tracks = pages
+            .Where(i => i.Track is FullTrack)
+            .Select(i => {
+                var t = (FullTrack)i.Track;
+                return new TrackDto(t.Id, t.Name,
+                    string.Join(", ", t.Artists.Select(a => a.Name)),
+                    t.Album?.Name,
+                    t.ExternalIds?.TryGetValue("isrc", out var isrc) == true ? isrc : null,
+                    t.Album?.Images?.FirstOrDefault()?.Url,
+                    t.DurationMs);
+            }).ToList();
+
+        return (metadata, tracks);
+    }
+
 }

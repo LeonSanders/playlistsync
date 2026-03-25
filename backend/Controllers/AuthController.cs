@@ -29,7 +29,7 @@ public class AuthController(
         {
             userId,
             spotify = new { connected = sp != null, displayName = sp?.DisplayName },
-            tidal = new { connected = ti != null, displayName = ti?.DisplayName }
+            tidal   = new { connected = ti != null, displayName = ti?.DisplayName }
         });
     }
 
@@ -38,7 +38,7 @@ public class AuthController(
     public async Task<IActionResult> SpotifyLogin()
     {
         var userId = GetOrCreateUserId();
-        var state = await CreateOAuthStateAsync(userId, "spotify", codeVerifier: null);
+        var state  = await CreateOAuthStateAsync(userId, "spotify", codeVerifier: null);
         SetUserCookie(userId);
         return Redirect(spotify.GetAuthorizationUrl(state));
     }
@@ -60,7 +60,7 @@ public class AuthController(
     public async Task<IActionResult> TidalLogin()
     {
         var userId = GetOrCreateUserId();
-        var state = Guid.NewGuid().ToString("N");
+        var state  = Guid.NewGuid().ToString("N");
 
         // PKCE: generate verifier here, store it alongside the state
         var (url, codeVerifier) = tidal.GetAuthorizationUrl(state);
@@ -109,7 +109,7 @@ public class AuthController(
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
-            Expires = DateTimeOffset.UtcNow.AddYears(1)
+            Expires  = DateTimeOffset.UtcNow.AddYears(1)
         });
 
     // Overload for Spotify (no PKCE — generates its own state)
@@ -123,11 +123,11 @@ public class AuthController(
 
         db.OAuthStates.Add(new OAuthState
         {
-            State = state,
-            UserId = userId,
-            Service = service,
+            State        = state,
+            UserId       = userId,
+            Service      = service,
             CodeVerifier = codeVerifier,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10)
+            ExpiresAt    = DateTime.UtcNow.AddMinutes(10)
         });
         await db.SaveChangesAsync();
         return state;
@@ -136,7 +136,7 @@ public class AuthController(
     private async Task<OAuthState?> ValidateAndConsumeStateAsync(string state, string service)
     {
         var record = await db.OAuthStates.FirstOrDefaultAsync(s =>
-            s.State == state &&
+            s.State   == state &&
             s.Service == service &&
             s.ExpiresAt > DateTime.UtcNow);
 

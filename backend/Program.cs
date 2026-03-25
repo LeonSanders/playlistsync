@@ -30,6 +30,7 @@ else
 }
 
 builder.Services.AddHttpClient<TidalService>();
+builder.Services.AddSingleton<TidalThrottler>();
 if (!isTest)
 {
     builder.Services.AddScoped<SpotifyService>();
