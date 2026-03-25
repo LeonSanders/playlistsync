@@ -29,7 +29,15 @@ else
     builder.Services.AddHangfireServer();
 }
 
-builder.Services.AddHttpClient<TidalService>();
+builder.Services.AddHttpClient<TidalService>(c =>
+{
+    c.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/124.0.0.0 Safari/537.36");
+    c.DefaultRequestHeaders.Accept.ParseAdd("application/json, text/plain, */*");
+    c.DefaultRequestHeaders.Add("Origin", "https://login.tidal.com");
+});
 builder.Services.AddSingleton<TidalThrottler>();
 if (!isTest)
 {
