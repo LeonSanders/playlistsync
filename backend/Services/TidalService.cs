@@ -49,7 +49,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         var verifier = GenerateCodeVerifier();
         var challenge = GenerateCodeChallenge(verifier);
 
-        var url = $"{AuthUrl}/oauth2/authorize"
+        var url = $"{AuthUrl}/authorize"
             + $"?response_type=code"
             + $"&client_id={Uri.EscapeDataString(_clientId)}"
             + $"&redirect_uri={Uri.EscapeDataString(_redirectUri)}"
@@ -370,6 +370,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         return token.AccessToken;
     }
 }
+
 
 // ── JSON:API response shapes ──────────────────────────────────────────────────
 
