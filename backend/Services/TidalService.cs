@@ -49,7 +49,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         var verifier = GenerateCodeVerifier();
         var challenge = GenerateCodeChallenge(verifier);
 
-        var url = $"{AuthUrl}/authorize"
+        var url = $"{AuthUrl}/oauth2/authorize"
             + $"?response_type=code"
             + $"&client_id={Uri.EscapeDataString(_clientId)}"
             + $"&redirect_uri={Uri.EscapeDataString(_redirectUri)}"
@@ -266,7 +266,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
 
     public async Task AddTracksAsync(string userId, string playlistId, IEnumerable<string> tidalTrackIds)
     {
-        foreach (var chunk in tidalTrackIds.Chunk(50))
+        foreach (var chunk in tidalTrackIds.Chunk(20))
         {
             var resp = await PostAsync(userId, $"/playlists/{playlistId}/relationships/items", new
             {
@@ -369,9 +369,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
             ?? throw new Exception("Failed to parse client credentials token");
         return token.AccessToken;
     }
-
 }
-
 
 // ── JSON:API response shapes ──────────────────────────────────────────────────
 
