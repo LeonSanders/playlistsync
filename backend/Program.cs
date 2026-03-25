@@ -105,6 +105,14 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// TEMPORARY: remove after confirming config loads correctly
+app.MapGet("/debug-config", (IConfiguration cfg) => Results.Ok(new {
+    spotifyClientId    = cfg["Spotify:ClientId"]?[..Math.Min(4, cfg["Spotify:ClientId"]?.Length ?? 0)] + "***",
+    spotifyRedirectUri = cfg["Spotify:RedirectUri"],
+    tidalClientId      = cfg["Tidal:ClientId"]?[..Math.Min(4, cfg["Tidal:ClientId"]?.Length ?? 0)] + "***",
+    env                = cfg["ASPNETCORE_ENVIRONMENT"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+    dbConfigured       = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DATABASE_PRIVATE_URL") ?? Environment.GetEnvironmentVariable("DATABASE_URL")),
+}));
 app.MapControllers();
 app.MapHangfireDashboard("/hangfire");
 

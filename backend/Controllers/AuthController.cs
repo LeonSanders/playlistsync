@@ -47,8 +47,20 @@ public class AuthController(
     [HttpGet("spotify/callback")]
     public async Task<IActionResult> SpotifyCallback([FromQuery] string code, [FromQuery] string state)
     {
+        var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
+        logger.LogInformation("Spotify callback received. State: {State}, HasCode: {HasCode}", state, !string.IsNullOrEmpty(code));
+
+        var allStates = await db.OAuthStates.Where(s => s.Service == "spotify").ToListAsync();
+        logger.LogInformation("Spotify OAuthStates in DB: {Count}. States: {States}",
+            allStates.Count,
+            string.Join(", ", allStates.Select(s => $"{s.State[..8]}… (expires {s.ExpiresAt:HH:mm:ss}, userId {s.UserId[..8]}…)")));
+
         var oauthState = await ValidateAndConsumeStateAsync(state, "spotify");
-        if (oauthState == null) return BadRequest("Invalid or expired OAuth state");
+        if (oauthState == null)
+        {
+            logger.LogWarning("State validation failed. Received: {State}", state);
+            return BadRequest("Invalid or expired OAuth state");
+        }
 
         await spotify.HandleCallbackAsync(code, oauthState.UserId);
         SetUserCookie(oauthState.UserId);
@@ -109,6 +121,9 @@ public class AuthController(
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
+            Secure   = !string.Equals(
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development",
+                StringComparison.OrdinalIgnoreCase),
             Expires  = DateTimeOffset.UtcNow.AddYears(1)
         });
 
