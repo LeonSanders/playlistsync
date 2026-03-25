@@ -10,9 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 var isTest = builder.Environment.EnvironmentName == "Test";
 
-// Railway provides DATABASE_URL as postgresql://user:pass@host:port/db
-// Npgsql needs Host=...;Username=...;Password=...;Database=... format
-var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+// Railway: prefer DATABASE_PRIVATE_URL (internal network) over DATABASE_URL (public)
+// Falls back to ConnectionStrings:Postgres from appsettings for local/Docker use
+var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_PRIVATE_URL")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
 var pg = databaseUrl != null
     ? ConvertDatabaseUrl(databaseUrl)
     : builder.Configuration.GetConnectionString("Postgres") ?? "";
