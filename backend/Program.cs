@@ -9,7 +9,21 @@ using PlaylistSync.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 var isTest = builder.Environment.EnvironmentName == "Test";
-var pg = builder.Configuration.GetConnectionString("Postgres") ?? "";
+
+// Railway provides DATABASE_URL as postgresql://user:pass@host:port/db
+// Npgsql needs Host=...;Username=...;Password=...;Database=... format
+var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+var pg = databaseUrl != null
+    ? ConvertDatabaseUrl(databaseUrl)
+    : builder.Configuration.GetConnectionString("Postgres") ?? "";
+
+static string ConvertDatabaseUrl(string url)
+{
+    var uri = new Uri(url);
+    var userInfo = uri.UserInfo.Split(':');
+    return $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};" +
+           $"Username={userInfo[0]};Password={Uri.UnescapeDataString(userInfo[1])};SSL Mode=Require;Trust Server Certificate=true";
+}
 
 if (!isTest)
     builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(pg));
