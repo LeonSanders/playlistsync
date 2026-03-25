@@ -66,3 +66,13 @@ public record ConnectionStatusDto(
     bool TidalConnected,
     string? TidalDisplayName
 );
+
+// Used by the "sync from imported playlist" endpoint —
+// caller provides the source tracks directly so no service auth is needed for the source side
+public record SyncFromTracksRequest(
+    List<TrackDto> SourceTracks,
+    string TargetService,
+    string TargetPlaylistId,   // empty string = create a new playlist
+    string TargetPlaylistName, // used when creating a new playlist
+    string Direction
+);

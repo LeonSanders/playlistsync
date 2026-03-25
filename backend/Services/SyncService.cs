@@ -151,4 +151,45 @@ public class SyncService(
         service == "spotify"
             ? await spotify.SearchTrackAsync(userId, name, artist, isrc)
             : await tidal.SearchTrackAsync(userId, name, artist, isrc);
+    /// Syncs a provided list of tracks into a target service playlist.
+    /// Used when the source is an imported URL — no auth needed for the source side.
+    public async Task<SyncResultDto> SyncFromTracksAsync(
+        string userId,
+        List<TrackDto> sourceTracks,
+        string targetService,
+        string targetPlaylistId,
+        string targetPlaylistName)
+    {
+        // Create target playlist if no ID provided
+        if (string.IsNullOrEmpty(targetPlaylistId))
+        {
+            targetPlaylistId = targetService == "spotify"
+                ? await spotify.CreatePlaylistAsync(userId, targetPlaylistName)
+                : await tidal.CreatePlaylistAsync(userId, targetPlaylistName);
+            logger.LogInformation("Created {Service} playlist '{Name}' → {Id}",
+                targetService, targetPlaylistName, targetPlaylistId);
+        }
+
+        // Get existing tracks in target to avoid duplicates
+        var existingTracks = await GetTracksAsync(userId, targetService, targetPlaylistId);
+        var existingIsrcs  = existingTracks.Where(t => t.Isrc != null).Select(t => t.Isrc!).ToHashSet();
+        var existingNames  = existingTracks.Select(t => $"{t.Name}|{t.Artist}".ToLower()).ToHashSet();
+
+        var toAdd = sourceTracks.Where(t =>
+            (t.Isrc == null || !existingIsrcs.Contains(t.Isrc)) &&
+            !existingNames.Contains($"{t.Name}|{t.Artist}".ToLower())
+        ).ToList();
+
+        var result = await AddTracksToServiceAsync(userId, targetService, targetPlaylistId, toAdd);
+
+        return new SyncResultDto(
+            true,
+            result.added,
+            0,
+            result.skipped,
+            result.unmatched.Count,
+            result.unmatched,
+            null);
+    }
+
 }

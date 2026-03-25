@@ -107,6 +107,23 @@ public class SyncController(
         return Ok(logs);
     }
 
+
+    // POST /api/sync/from-tracks
+    // Syncs a caller-supplied track list into a target service playlist.
+    // Source can be an imported URL playlist — no auth needed for the source side.
+    [HttpPost("from-tracks")]
+    public async Task<IActionResult> SyncFromTracks([FromBody] SyncFromTracksRequest req)
+    {
+        if (string.IsNullOrEmpty(UserId)) return Unauthorized();
+        var result = await syncService.SyncFromTracksAsync(
+            UserId,
+            req.SourceTracks,
+            req.TargetService,
+            req.TargetPlaylistId,
+            req.TargetPlaylistName);
+        return Ok(result);
+    }
+
     // POST /api/sync/webhook/spotify  — Spotify sends change notifications here
     [HttpPost("webhook/spotify")]
     public async Task<IActionResult> SpotifyWebhook([FromBody] SpotifyWebhookPayload payload)

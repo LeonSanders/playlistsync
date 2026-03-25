@@ -94,10 +94,29 @@ export default function App() {
   }
 
   const handleSync = async () => {
-    if (!activeMapping) return
     setSyncing(true)
     setSyncResult(null)
     try {
+      // If we have an imported playlist, sync its tracks directly into the target service
+      if (importedPlaylist) {
+        const targetService  = importedPlaylist.service === layout.left ? layout.right : layout.left
+        const targetPlaylist = importedPlaylist.service === layout.left ? selectedRight : selectedLeft
+        const result = await api.sync.syncFromTracks({
+          sourceTracks:       importedPlaylist.tracks,
+          targetService,
+          targetPlaylistId:   targetPlaylist?.id ?? '',
+          targetPlaylistName: importedPlaylist.name,
+          direction:          'sourceToTarget',
+        })
+        setSyncResult(result)
+        if (result.success)
+          showToast(`Synced: +${result.tracksAdded} tracks${result.tracksSkipped ? `, ${result.tracksSkipped} skipped` : ''}`)
+        else
+          showToast(result.error ?? 'Sync failed', 'error')
+        return
+      }
+
+      if (!activeMapping) return
       const result = await api.sync.triggerSync(activeMapping.id)
       setSyncResult(result)
       if (result.success) {
@@ -209,8 +228,8 @@ export default function App() {
         <div className="middle-col">
           <button className="dir-btn" onClick={swapPanels} title="Swap panels">⇄</button>
           <button
-            className={`sync-orb ${syncing ? 'syncing' : ''} ${!activeMapping ? 'disabled' : ''}`}
-            onClick={handleSync} disabled={!activeMapping || syncing} title="Sync now">
+            className={`sync-orb ${syncing ? 'syncing' : ''} ${(!activeMapping && !importedPlaylist) ? 'disabled' : ''}`}
+            onClick={handleSync} disabled={(!activeMapping && !importedPlaylist) || syncing} title="Sync now">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
               <path d="M21 3v5h-5"/>

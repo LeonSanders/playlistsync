@@ -52,6 +52,18 @@ export const api = {
     getStatus: (id: number) =>
       req<TrackSyncStatus[]>(`${base}/sync/mappings/${id}/status`),
 
+    syncFromTracks: (body: {
+      sourceTracks: import('./types').Track[]
+      targetService: string
+      targetPlaylistId: string
+      targetPlaylistName: string
+      direction: string
+    }) => req<import('./types').SyncResult>(`${base}/sync/from-tracks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
     updateMapping: (id: number, patch: { autoSync?: boolean; direction?: string }) =>
       req<void>(`${base}/sync/mappings/${id}`, {
         method: 'PATCH',
