@@ -1,4 +1,4 @@
-import type { ConnectionStatus, Playlist, TrackSyncStatus, Mapping, SyncResult } from './types'
+import type { ConnectionStatus, Playlist, TrackSyncStatus, Mapping, SyncResult, ImportedPlaylist } from './types'
 
 const base = '/api'
 
@@ -20,6 +20,11 @@ export const api = {
   playlists: {
     getSpotify: () => req<Playlist[]>(`${base}/playlists/spotify`),
     getTidal: () => req<Playlist[]>(`${base}/playlists/tidal`),
+    fromUrl: (url: string) => req<ImportedPlaylist>(`${base}/playlists/from-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    }),
   },
 
   sync: {

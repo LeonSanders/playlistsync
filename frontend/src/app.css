@@ -447,3 +447,48 @@ body {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-med); border-radius: 2px; }
+
+/* ── URL import bar ── */
+.url-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 0.5px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.url-input {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 0.5px solid var(--border-med);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s;
+}
+.url-input:focus { border-color: var(--text-3); }
+.url-input::placeholder { color: var(--text-3); }
+
+/* ── Imported playlist card ── */
+.imported-card {
+  margin: 8px 12px;
+  border: 0.5px solid var(--border-med);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.imported-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-bottom: 0.5px solid var(--border);
+}
+.imported-tracks { padding: 4px 0; }
+
+/* ── dot colors for dynamic layout ── */
+.dot-tidal  { background: var(--tidal); }
+.dot-spotify { background: var(--spotify); }

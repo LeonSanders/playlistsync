@@ -52,3 +52,12 @@ export interface SyncResult {
   unmatched: { name: string; artist: string; sourceService: string }[]
   error?: string
 }
+
+export interface ImportedPlaylist {
+  service: string
+  playlistId: string
+  name: string
+  trackCount: number
+  imageUrl?: string
+  tracks: Track[]
+}
