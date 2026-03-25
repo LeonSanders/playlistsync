@@ -13,7 +13,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
     private readonly string _clientSecret = config["Tidal:ClientSecret"]!;
     private readonly string _redirectUri = config["Tidal:RedirectUri"]!;
     private const string BaseUrl = "https://openapi.tidal.com/v2";
-    private const string AuthUrl = "https://login.tidal.com/oauth2";
+    private const string AuthUrl = "https://login.tidal.com";
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -24,8 +24,9 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
     public string GetAuthorizationUrl(string state)
     {
         var scopes = "playlists.read playlists.write user.profile.read";
-        return $"{AuthUrl}/authorize?response_type=code&client_id={Uri.EscapeDataString(_clientId)}" +
+        var url = $"{AuthUrl}/authorize?response_type=code&client_id={Uri.EscapeDataString(_clientId)}" +
                $"&redirect_uri={Uri.EscapeDataString(_redirectUri)}&scope={Uri.EscapeDataString(scopes)}&state={state}";
+        return url;
     }
 
     public async Task<UserConnection> HandleCallbackAsync(string code, string userId)
