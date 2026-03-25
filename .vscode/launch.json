@@ -6,13 +6,14 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build-backend",
-      "program": "${workspaceFolder}/backend/bin/Debug/net8.0/PlaylistSync.dll",
+      "program": "${workspaceFolder}/backend/bin/Debug/net10.0/PlaylistSync.dll",
       "args": [],
       "cwd": "${workspaceFolder}/backend",
       "stopAtEntry": false,
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5000"
+        "ASPNETCORE_URLS": "http://localhost:5001",
+        "DOTNET_ENVIRONMENT": "Development"
       },
       "sourceFileMap": {
         "/Views": "${workspaceFolder}/backend/Views"
@@ -23,7 +24,10 @@
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "${workspaceFolder}/frontend",
       "console": "integratedTerminal",
       "serverReadyAction": {
@@ -37,7 +41,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build-tests",
-      "program": "${workspaceFolder}/backend.tests/bin/Debug/net8.0/PlaylistSync.Tests.dll",
+      "program": "${workspaceFolder}/backend.tests/bin/Debug/net10.0/PlaylistSync.Tests.dll",
       "args": [],
       "cwd": "${workspaceFolder}/backend.tests",
       "stopAtEntry": false,
@@ -58,7 +62,11 @@
       "processId": "${command:pickRemoteProcess}",
       "pipeTransport": {
         "pipeProgram": "docker",
-        "pipeArgs": ["exec", "-i", "playlistsync-backend-1"],
+        "pipeArgs": [
+          "exec",
+          "-i",
+          "backend-1"
+        ],
         "debuggerPath": "/vsdbg/vsdbg",
         "pipeCwd": "${workspaceFolder}"
       },
@@ -71,12 +79,18 @@
   "compounds": [
     {
       "name": "Full Stack (local)",
-      "configurations": ["Backend (ASP.NET Core)", "Frontend (Vite)"],
+      "configurations": [
+        "Backend (ASP.NET Core)",
+        "Frontend (Vite)"
+      ],
       "stopAll": true
     },
     {
       "name": "Full Stack (Docker debug)",
-      "configurations": ["Attach to Backend (Docker)", "Frontend (Vite)"],
+      "configurations": [
+        "Attach to Backend (Docker)",
+        "Frontend (Vite)"
+      ],
       "stopAll": true
     }
   ]

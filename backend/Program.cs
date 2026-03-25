@@ -1,4 +1,5 @@
 using Hangfire;
+using Hangfire.InMemory;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 using PlaylistSync.Data;
@@ -13,12 +14,20 @@ var pg = builder.Configuration.GetConnectionString("Postgres") ?? "";
 if (!isTest)
     builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(pg));
 
-builder.Services.AddHangfire(c => c
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(isTest ? "Host=localhost" : pg)));
-builder.Services.AddHangfireServer();
+if (!isTest)
+{
+    builder.Services.AddHangfire(c => c
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(pg)));
+    builder.Services.AddHangfireServer();
+}
+else
+{
+    builder.Services.AddHangfire(c => c.UseInMemoryStorage());
+    builder.Services.AddHangfireServer();
+}
 
 builder.Services.AddHttpClient<TidalService>();
 if (!isTest)
@@ -43,7 +52,17 @@ if (!isTest)
 {
     using var scope = app.Services.CreateScope();
     var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await ctx.Database.MigrateAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var retries = 10;
+    while (retries-- > 0)
+    {
+        try { await ctx.Database.MigrateAsync(); break; }
+        catch (Exception ex) when (retries > 0)
+        {
+            logger.LogWarning("Postgres not ready, retrying in 2s... ({Retries} left). {Message}", retries, ex.Message);
+            await Task.Delay(2000);
+        }
+    }
 }
 
 if (app.Environment.IsDevelopment())

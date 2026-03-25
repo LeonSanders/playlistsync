@@ -1,7 +1,7 @@
 ### PlaylistSync API — REST Client (requires humao.rest-client extension)
 ### Run any request with the "Send Request" link that appears above it.
 
-@host = http://localhost:5000
+@host = http://localhost:5001
 @frontendHost = http://localhost:5173
 
 # ─────────────────────────────────────────────
