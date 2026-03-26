@@ -3,10 +3,19 @@ import type { ConnectionStatus, Playlist, TrackSyncStatus, Mapping, SyncResult, 
 const base = '/api'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, { credentials: 'include', ...options })
+  // Send stored userId as header fallback if cookie might be missing
+  const storedUserId = localStorage.getItem('playlistsync_user_id')
+  const headers: Record<string, string> = { ...(options?.headers as Record<string, string> ?? {}) }
+  if (storedUserId) headers['X-User-Id'] = storedUserId
+
+  const res = await fetch(url, { credentials: 'include', ...options, headers })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   if (res.status === 204) return undefined as T
-  return res.json()
+  const data = await res.json()
+  // Store userId from auth/status response
+  if (url.includes('/auth/status') && data.userId)
+    localStorage.setItem('playlistsync_user_id', data.userId)
+  return data
 }
 
 export const api = {

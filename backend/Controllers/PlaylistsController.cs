@@ -14,7 +14,8 @@ public class PlaylistsController(
     TidalService tidal,
     AppDbContext db) : ControllerBase
 {
-    private string UserId => Request.Cookies["user_id"] ?? "";
+    private string UserId => Request.Cookies.TryGetValue("user_id", out var c) && !string.IsNullOrEmpty(c) ? c
+        : (Request.Headers.TryGetValue("X-User-Id", out var h) ? h.ToString() : "");
 
     // GET /api/playlists/spotify
     [HttpGet("spotify")]
@@ -66,6 +67,8 @@ public class PlaylistsController(
         }
         catch (Exception ex)
         {
+            var logger = HttpContext.RequestServices.GetRequiredService<ILogger<PlaylistsController>>();
+            logger.LogError(ex, "from-url failed for {Service}/{PlaylistId}", service, playlistId);
             return BadRequest($"Failed to fetch playlist: {ex.Message}");
         }
     }

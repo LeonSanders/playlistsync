@@ -129,6 +129,9 @@ public class AuthController(
     {
         if (Request.Cookies.TryGetValue("user_id", out var existing) && !string.IsNullOrEmpty(existing))
             return existing;
+        // Fallback: client sends stored ID as header when cookie is missing
+        if (Request.Headers.TryGetValue("X-User-Id", out var header) && !string.IsNullOrEmpty(header))
+            return header.ToString();
         return Guid.NewGuid().ToString("N");
     }
 

@@ -15,7 +15,8 @@ public class SyncController(
     AppDbContext db,
     IBackgroundJobClient jobs) : ControllerBase
 {
-    private string UserId => Request.Cookies["user_id"] ?? "";
+    private string UserId => Request.Cookies.TryGetValue("user_id", out var c) && !string.IsNullOrEmpty(c) ? c
+        : (Request.Headers.TryGetValue("X-User-Id", out var h) ? h.ToString() : "");
 
     // GET /api/sync/mappings
     [HttpGet("mappings")]

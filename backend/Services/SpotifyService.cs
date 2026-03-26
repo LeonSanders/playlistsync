@@ -93,24 +93,28 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
 
     public async Task<List<PlaylistDto>> GetPlaylistsAsync(string userId, List<Data.SyncMapping> mappings)
     {
-        var client = await GetClientAsync(userId);
-        var pages = await client.PaginateAll(await client.Playlists.CurrentUsers());
-
-        return pages.Select(p =>
+        try
         {
-            var mapping = mappings.FirstOrDefault(m =>
-                (m.SourceService == "spotify" && m.SourcePlaylistId == p.Id) ||
-                (m.TargetService == "spotify" && m.TargetPlaylistId == p.Id));
-            return new PlaylistDto(
-                p.Id!,
-                p.Name!,
-                p.Tracks?.Total ?? 0,
-                p.Images?.FirstOrDefault()?.Url,
-                mapping != null,
-                mapping?.LastSyncedAt,
-                mapping?.LastSyncStatus ?? "never"
-            );
-        }).ToList();
+            var client = await GetClientAsync(userId);
+            var pages  = await client.PaginateAll(await client.Playlists.CurrentUsers());
+            return pages.Select(p =>
+            {
+                var mapping = mappings.FirstOrDefault(m =>
+                    (m.SourceService == "spotify" && m.SourcePlaylistId == p.Id) ||
+                    (m.TargetService == "spotify" && m.TargetPlaylistId == p.Id));
+                return new PlaylistDto(p.Id!, p.Name!, p.Tracks?.Total ?? 0,
+                    p.Images?.FirstOrDefault()?.Url, mapping != null,
+                    mapping?.LastSyncedAt, mapping?.LastSyncStatus ?? "never");
+            }).ToList();
+        }
+        catch (SpotifyAPI.Web.APIException)
+        {
+            // Token is invalid — remove the broken connection so the user can re-auth
+            var conn = await db.UserConnections
+                .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify");
+            if (conn != null) { db.UserConnections.Remove(conn); await db.SaveChangesAsync(); }
+            return [];
+        }
     }
 
     public async Task<List<TrackDto>> GetPlaylistTracksAsync(string userId, string playlistId)
@@ -198,9 +202,18 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     public async Task<(PlaylistDto metadata, List<TrackDto> tracks)> GetPlaylistByIdAsync(string userId, string playlistId)
     {
         SpotifyClient client;
-        try   { client = await GetClientAsync(userId); }
-        catch { client = new SpotifyClient(await new OAuthClient().RequestToken(
-                    new ClientCredentialsRequest(_clientId, _clientSecret))); }
+        try
+        {
+            // Use user's token if connected, otherwise fall back to client credentials
+            if (string.IsNullOrEmpty(userId)) throw new InvalidOperationException("No user");
+            client = await GetClientAsync(userId);
+        }
+        catch
+        {
+            // Client credentials for public playlist access
+            client = new SpotifyClient(await new OAuthClient().RequestToken(
+                new ClientCredentialsRequest(_clientId, _clientSecret)));
+        }
 
         var playlist = await client.Playlists.Get(playlistId);
         var pages    = await client.PaginateAll(await client.Playlists.GetItems(playlistId));

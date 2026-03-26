@@ -89,6 +89,13 @@ if (!isTest)
             await Task.Delay(2000);
         }
     }
+
+    // Clean up any broken Spotify connections saved with empty ServiceUserId
+    // (these result from failed profile fetches during auth)
+    var broken = ctx.UserConnections
+        .Where(c => c.Service == "spotify" && c.ServiceUserId == "");
+    ctx.UserConnections.RemoveRange(broken);
+    await ctx.SaveChangesAsync();
 }
 
 if (app.Environment.IsDevelopment())
@@ -96,6 +103,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseExceptionHandler(err => err.Run(async ctx =>
+{
+    ctx.Response.StatusCode = 500;
+    ctx.Response.ContentType = "application/json";
+    var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+    await ctx.Response.WriteAsJsonAsync(new { error = ex?.Message ?? "Internal server error" });
+}));
 
 if (!app.Environment.IsProduction())
     app.UseCors();
