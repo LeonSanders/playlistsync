@@ -157,7 +157,7 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
             foreach (var item in page!.Items ?? [])
             {
                 if (item.Track is not { } t || t.Id == null) continue;
-                t.ExternalIds?.TryGetValue("isrc", out var isrc);
+                var isrc = t.ExternalIds != null && t.ExternalIds.TryGetValue("isrc", out var isrcVal) ? isrcVal : null;
                 tracks.Add(new TrackDto(t.Id, t.Name ?? "",
                     string.Join(", ", t.Artists?.Select(a => a.Name ?? "") ?? []),
                     t.Album?.Name, isrc,
@@ -295,10 +295,10 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
                 foreach (var item in page!.Items ?? [])
                 {
                     if (item.Track is not { } track || track.Id == null) continue;
-                    track.ExternalIds?.TryGetValue("isrc", out var isrc);
+                    var isrc2 = track.ExternalIds != null && track.ExternalIds.TryGetValue("isrc", out var isrcVal) ? isrcVal : null;
                     tracks.Add(new TrackDto(track.Id, track.Name ?? "",
                         string.Join(", ", track.Artists?.Select(a => a.Name ?? "") ?? []),
-                        track.Album?.Name, isrc,
+                        track.Album?.Name, isrc2,
                         track.Album?.Images?.FirstOrDefault()?.Url,
                         track.DurationMs));
                 }
