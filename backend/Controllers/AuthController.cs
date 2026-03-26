@@ -141,26 +141,35 @@ public class AuthController(
         var now = DateTime.UtcNow;
         var expiresAt = now.AddMinutes(10);
 
-        // Clean up expired states first, then insert new one in a single transaction
-        await using var tx = await db.Database.BeginTransactionAsync();
-
-        var expired = db.OAuthStates.Where(s => s.ExpiresAt < now);
-        db.OAuthStates.RemoveRange(expired);
-
-        var entry = new OAuthState
+        try
         {
-            State        = state,
-            UserId       = userId,
-            Service      = service,
-            CodeVerifier = codeVerifier,
-            ExpiresAt    = expiresAt
-        };
-        db.OAuthStates.Add(entry);
-        await db.SaveChangesAsync();
-        await tx.CommitAsync();
+            // Clean expired states
+            var expired = db.OAuthStates.Where(s => s.ExpiresAt < now);
+            db.OAuthStates.RemoveRange(expired);
+            await db.SaveChangesAsync();
 
-        logger.LogInformation("OAuthState saved. Service: {Service}, State: {State}, ExpiresAt: {ExpiresAt} UTC, Now: {Now} UTC",
-            service, state, expiresAt, now);
+            // Insert new state
+            var entry = new OAuthState
+            {
+                State        = state,
+                UserId       = userId,
+                Service      = service,
+                CodeVerifier = codeVerifier,
+                ExpiresAt    = expiresAt
+            };
+            db.OAuthStates.Add(entry);
+            await db.SaveChangesAsync();
+
+            // Verify it's actually there
+            var saved = await db.OAuthStates.AnyAsync(s => s.State == state);
+            logger.LogInformation("OAuthState saved={Saved}. Service: {Service}, State: {State}, ExpiresAt: {ExpiresAt} UTC",
+                saved, service, state, expiresAt);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to save OAuthState for service {Service}", service);
+            throw;
+        }
 
         return state;
     }
@@ -170,18 +179,20 @@ public class AuthController(
         var now = DateTime.UtcNow;
         var record = await db.OAuthStates.FirstOrDefaultAsync(s =>
             s.State   == state &&
-            s.Service == service &&
-            s.ExpiresAt > now);
+            s.Service == service);
+
+        var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
 
         if (record == null)
         {
-            // Check if it exists but expired
-            var expired = await db.OAuthStates.FirstOrDefaultAsync(s => s.State == state && s.Service == service);
-            var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
-            if (expired != null)
-                logger.LogWarning("State found but expired. ExpiresAt: {ExpiresAt} UTC, Now: {Now} UTC", expired.ExpiresAt, now);
-            else
-                logger.LogWarning("State not found at all. Now: {Now} UTC", now);
+            logger.LogWarning("State not found at all. Now: {Now} UTC", now);
+            return null;
+        }
+
+        if (record.ExpiresAt < now)
+        {
+            logger.LogWarning("State expired. ExpiresAt: {ExpiresAt} UTC, Now: {Now} UTC, Diff: {Diff}s",
+                record.ExpiresAt, now, (now - record.ExpiresAt).TotalSeconds);
             return null;
         }
 
