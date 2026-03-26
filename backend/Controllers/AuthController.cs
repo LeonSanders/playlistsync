@@ -155,12 +155,17 @@ public class AuthController(
             await db.Database.ExecuteSqlRawAsync(
                 "DELETE FROM \"OAuthStates\" WHERE \"ExpiresAt\" < {0}", now);
 
-            // Insert new state directly via SQL to avoid any EF change tracking issues
-            await db.Database.ExecuteSqlRawAsync(
-                "INSERT INTO \"OAuthStates\" (\"State\", \"UserId\", \"Service\", \"CodeVerifier\", \"ExpiresAt\") VALUES ({0}, {1}, {2}, {3}, {4})",
-                state, userId, service, (object?)codeVerifier ?? DBNull.Value, expiresAt);
+            // Insert via EF Core — handles null CodeVerifier correctly
+            db.OAuthStates.Add(new OAuthState
+            {
+                State        = state,
+                UserId       = userId,
+                Service      = service,
+                CodeVerifier = codeVerifier,  // null for Spotify, fine for EF Core
+                ExpiresAt    = expiresAt
+            });
+            await db.SaveChangesAsync();
 
-            // Verify it's actually there
             var saved = await db.OAuthStates.AnyAsync(s => s.State == state);
             logger.LogInformation("OAuthState saved={Saved}. Service: {Service}, State: {State}, ExpiresAt: {ExpiresAt} UTC",
                 saved, service, state, expiresAt);
