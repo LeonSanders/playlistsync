@@ -37,8 +37,10 @@ public class AuthController(
     [HttpGet("spotify/login")]
     public async Task<IActionResult> SpotifyLogin()
     {
+        var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
         var userId = GetOrCreateUserId();
         var state  = await CreateOAuthStateAsync(userId, "spotify", codeVerifier: null);
+        logger.LogInformation("Spotify login. UserId: {UserId}, State: {State}", userId, state);
         SetUserCookie(userId);
         return Redirect(spotify.GetAuthorizationUrl(state));
     }
@@ -51,9 +53,11 @@ public class AuthController(
         logger.LogInformation("Spotify callback received. State: {State}, HasCode: {HasCode}", state, !string.IsNullOrEmpty(code));
 
         var allStates = await db.OAuthStates.Where(s => s.Service == "spotify").ToListAsync();
-        logger.LogInformation("Spotify OAuthStates in DB: {Count}. States: {States}",
+        var totalCount = await db.OAuthStates.CountAsync();
+        logger.LogInformation("Spotify OAuthStates in DB: {Count} spotify, {Total} total. States: {States}",
             allStates.Count,
-            string.Join(", ", allStates.Select(s => $"{s.State[..8]}… (expires {s.ExpiresAt:HH:mm:ss}, userId {s.UserId[..8]}…)")));
+            totalCount,
+            string.Join(", ", allStates.Select(s => $"{s.State[..8]}… (expires {s.ExpiresAt:HH:mm:ss} UTC, userId {s.UserId[..8]}…)")));
 
         var oauthState = await ValidateAndConsumeStateAsync(state, "spotify");
         if (oauthState == null)
@@ -133,29 +137,54 @@ public class AuthController(
 
     private async Task<string> CreateOAuthStateAsync(string userId, string service, string? codeVerifier, string state)
     {
-        var expired = db.OAuthStates.Where(s => s.ExpiresAt < DateTime.UtcNow);
+        var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddMinutes(10);
+
+        // Clean up expired states first, then insert new one in a single transaction
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        var expired = db.OAuthStates.Where(s => s.ExpiresAt < now);
         db.OAuthStates.RemoveRange(expired);
 
-        db.OAuthStates.Add(new OAuthState
+        var entry = new OAuthState
         {
             State        = state,
             UserId       = userId,
             Service      = service,
             CodeVerifier = codeVerifier,
-            ExpiresAt    = DateTime.UtcNow.AddMinutes(10)
-        });
+            ExpiresAt    = expiresAt
+        };
+        db.OAuthStates.Add(entry);
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        logger.LogInformation("OAuthState saved. Service: {Service}, State: {State}, ExpiresAt: {ExpiresAt} UTC, Now: {Now} UTC",
+            service, state, expiresAt, now);
+
         return state;
     }
 
     private async Task<OAuthState?> ValidateAndConsumeStateAsync(string state, string service)
     {
+        var now = DateTime.UtcNow;
         var record = await db.OAuthStates.FirstOrDefaultAsync(s =>
             s.State   == state &&
             s.Service == service &&
-            s.ExpiresAt > DateTime.UtcNow);
+            s.ExpiresAt > now);
 
-        if (record == null) return null;
+        if (record == null)
+        {
+            // Check if it exists but expired
+            var expired = await db.OAuthStates.FirstOrDefaultAsync(s => s.State == state && s.Service == service);
+            var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
+            if (expired != null)
+                logger.LogWarning("State found but expired. ExpiresAt: {ExpiresAt} UTC, Now: {Now} UTC", expired.ExpiresAt, now);
+            else
+                logger.LogWarning("State not found at all. Now: {Now} UTC", now);
+            return null;
+        }
+
         db.OAuthStates.Remove(record);
         await db.SaveChangesAsync();
         return record;
