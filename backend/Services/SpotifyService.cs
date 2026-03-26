@@ -95,19 +95,37 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     {
         try
         {
-            var client = await GetClientAsync(userId);
-            var pages  = await client.PaginateAll(await client.Playlists.CurrentUsers());
-            return pages.Select(p =>
+            var conn = await db.UserConnections
+                .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
+                ?? throw new InvalidOperationException("Spotify not connected");
+
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+
+            var playlists = new List<PlaylistDto>();
+            string? url = "https://api.spotify.com/v1/me/playlists?limit=50";
+            while (url != null)
             {
-                var mapping = mappings.FirstOrDefault(m =>
-                    (m.SourceService == "spotify" && m.SourcePlaylistId == p.Id) ||
-                    (m.TargetService == "spotify" && m.TargetPlaylistId == p.Id));
-                return new PlaylistDto(p.Id!, p.Name!, p.Tracks?.Total ?? 0,
-                    p.Images?.FirstOrDefault()?.Url, mapping != null,
-                    mapping?.LastSyncedAt, mapping?.LastSyncStatus ?? "never");
-            }).ToList();
+                var resp = await http.GetAsync(url);
+                resp.EnsureSuccessStatusCode();
+                var page = await resp.Content.ReadFromJsonAsync<SpotifyPlaylistsPage>(JsonOpts)!;
+                foreach (var p in page!.Items ?? [])
+                {
+                    if (p.Id == null) continue;
+                    var mapping = mappings.FirstOrDefault(m =>
+                        (m.SourceService == "spotify" && m.SourcePlaylistId == p.Id) ||
+                        (m.TargetService == "spotify" && m.TargetPlaylistId == p.Id));
+                    playlists.Add(new PlaylistDto(p.Id, p.Name ?? "",
+                        p.Tracks?.Total ?? 0,
+                        p.Images?.FirstOrDefault()?.Url,
+                        mapping != null, mapping?.LastSyncedAt, mapping?.LastSyncStatus ?? "never"));
+                }
+                url = page.Next;
+            }
+            return playlists;
         }
-        catch (SpotifyAPI.Web.APIException)
+        catch (Exception)
         {
             // Token is invalid — remove the broken connection so the user can re-auth
             var conn = await db.UserConnections
@@ -119,44 +137,76 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
 
     public async Task<List<TrackDto>> GetPlaylistTracksAsync(string userId, string playlistId)
     {
-        var client = await GetClientAsync(userId);
-        var pages = await client.PaginateAll(
-            await client.Playlists.GetItems(playlistId));
+        // GET /playlists/{id}/items — replaces removed /playlists/{id}/tracks (Feb 2026)
+        var conn = await db.UserConnections
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
+            ?? throw new InvalidOperationException("Spotify not connected");
 
-        return pages
-            .Where(i => i.Track is FullTrack)
-            .Select(i =>
+        var tracks = new List<TrackDto>();
+        string? url = $"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=50";
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+
+        while (url != null)
+        {
+            var resp = await http.GetAsync(url);
+            resp.EnsureSuccessStatusCode();
+            var page = await resp.Content.ReadFromJsonAsync<SpotifyItemsPage>(JsonOpts)!;
+            foreach (var item in page!.Items ?? [])
             {
-                var t = (FullTrack)i.Track;
-                return new TrackDto(
-                    t.Id,
-                    t.Name,
-                    string.Join(", ", t.Artists.Select(a => a.Name)),
-                    t.Album?.Name,
-                    t.ExternalIds?.TryGetValue("isrc", out var isrc) == true ? isrc : null,
+                if (item.Track is not { } t || t.Id == null) continue;
+                t.ExternalIds?.TryGetValue("isrc", out var isrc);
+                tracks.Add(new TrackDto(t.Id, t.Name ?? "",
+                    string.Join(", ", t.Artists?.Select(a => a.Name ?? "") ?? []),
+                    t.Album?.Name, isrc,
                     t.Album?.Images?.FirstOrDefault()?.Url,
-                    t.DurationMs
-                );
-            }).ToList();
+                    t.DurationMs));
+            }
+            url = page.Next;
+        }
+        return tracks;
     }
 
     public async Task<string> CreatePlaylistAsync(string userId, string name)
     {
-        var client = await GetClientAsync(userId);
-        var profile = await client.UserProfile.Current();
-        var playlist = await client.Playlists.Create(profile.Id,
-            new PlaylistCreateRequest(name) { Description = "Synced by PlaylistSync" });
-        return playlist.Id!;
+        // POST /me/playlists — replaces removed POST /users/{id}/playlists (Feb 2026)
+        var conn = await db.UserConnections
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
+            ?? throw new InvalidOperationException("Spotify not connected");
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+        var resp = await http.PostAsJsonAsync("https://api.spotify.com/v1/me/playlists", new
+        {
+            name,
+            description = "Synced by PlaylistSync",
+            @public = false
+        });
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        return body.GetProperty("id").GetString()!;
     }
 
     public async Task AddTracksAsync(string userId, string playlistId, IEnumerable<string> spotifyTrackIds)
     {
-        var client = await GetClientAsync(userId);
-        var chunks = spotifyTrackIds.Chunk(100);
-        foreach (var chunk in chunks)
+        // POST /playlists/{id}/items — replaces removed /playlists/{id}/tracks (Feb 2026)
+        var conn = await db.UserConnections
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
+            ?? throw new InvalidOperationException("Spotify not connected");
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+
+        foreach (var chunk in spotifyTrackIds.Chunk(100))
         {
             var uris = chunk.Select(id => $"spotify:track:{id}").ToList();
-            await client.Playlists.AddItems(playlistId, new PlaylistAddItemsRequest(uris));
+            var resp = await http.PostAsJsonAsync(
+                $"https://api.spotify.com/v1/playlists/{playlistId}/items",
+                new { uris });
+            resp.EnsureSuccessStatusCode();
         }
     }
 
@@ -215,38 +265,96 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
 
         try
         {
-            var playlist = await client.Playlists.Get(playlistId);
-            var pages    = await client.PaginateAll(await client.Playlists.GetItems(playlistId));
+            // GET /playlists/{id} still works; GET /playlists/{id}/items replaces /tracks (Feb 2026)
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer",
+                    client is SpotifyClient sc ? "" : ""); // token set below
 
-            var metadata = new PlaylistDto(
-                playlist.Id!,
-                playlist.Name!,
-                playlist.Tracks?.Total ?? 0,
-                playlist.Images?.FirstOrDefault()?.Url,
-                false, null, "never");
+            // Re-fetch token string for direct HTTP since we have the client object
+            var conn = string.IsNullOrEmpty(userId) ? null :
+                await db.UserConnections.FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify");
+            var token = conn?.AccessToken
+                ?? (await new OAuthClient().RequestToken(new ClientCredentialsRequest(_clientId, _clientSecret))).AccessToken;
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-            var tracks = pages
-                .Where(i => i.Track is FullTrack)
-                .Select(i => {
-                    var t = (FullTrack)i.Track;
-                    return new TrackDto(t.Id, t.Name,
-                        string.Join(", ", t.Artists.Select(a => a.Name)),
-                        t.Album?.Name,
-                        t.ExternalIds?.TryGetValue("isrc", out var isrc) == true ? isrc : null,
-                        t.Album?.Images?.FirstOrDefault()?.Url,
-                        t.DurationMs);
-                }).ToList();
+            var plResp = await http.GetAsync($"https://api.spotify.com/v1/playlists/{playlistId}?fields=id,name,tracks.total");
+            plResp.EnsureSuccessStatusCode();
+            var pl = await plResp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            var plName = pl.GetProperty("name").GetString() ?? "Unknown";
+            var plTotal = pl.TryGetProperty("tracks", out var t) && t.TryGetProperty("total", out var tot) ? tot.GetInt32() : 0;
 
+            var tracks = new List<TrackDto>();
+            string? nextUrl = $"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=50";
+            while (nextUrl != null)
+            {
+                var tResp = await http.GetAsync(nextUrl);
+                tResp.EnsureSuccessStatusCode();
+                var page = await tResp.Content.ReadFromJsonAsync<SpotifyItemsPage>(JsonOpts)!;
+                foreach (var item in page!.Items ?? [])
+                {
+                    if (item.Track is not { } track || track.Id == null) continue;
+                    track.ExternalIds?.TryGetValue("isrc", out var isrc);
+                    tracks.Add(new TrackDto(track.Id, track.Name ?? "",
+                        string.Join(", ", track.Artists?.Select(a => a.Name ?? "") ?? []),
+                        track.Album?.Name, isrc,
+                        track.Album?.Images?.FirstOrDefault()?.Url,
+                        track.DurationMs));
+                }
+                nextUrl = page.Next;
+            }
+
+            var metadata = new PlaylistDto(playlistId, plName, plTotal,
+                null, false, null, "never");
             return (metadata, tracks);
         }
-        catch (SpotifyAPI.Web.APIException ex)
+        catch (HttpRequestException ex)
         {
-            var status = ex.Response?.StatusCode;
-            var body   = ex.Response?.Body?.ToString() ?? "(no body)";
-            var friendly = status == System.Net.HttpStatusCode.Forbidden
+            var friendly = ex.StatusCode == System.Net.HttpStatusCode.Forbidden
                 ? "This playlist is private or not accessible. Make sure it's set to Public in Spotify."
-                : $"Spotify API {status} for playlist {playlistId}: {body}";
+                : $"Spotify API error for playlist {playlistId}: {ex.Message}";
             throw new Exception(friendly);
         }
     }
+
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 }
+
+// ── Spotify HTTP response shapes ──────────────────────────────────────────────
+record SpotifyItemsPage(
+    [property: System.Text.Json.Serialization.JsonPropertyName("items")] List<SpotifyPlaylistItem>? Items,
+    [property: System.Text.Json.Serialization.JsonPropertyName("next")]  string? Next
+);
+record SpotifyPlaylistItem(
+    [property: System.Text.Json.Serialization.JsonPropertyName("track")] SpotifyTrackItem? Track
+);
+record SpotifyTrackItem(
+    [property: System.Text.Json.Serialization.JsonPropertyName("id")]           string? Id,
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")]         string? Name,
+    [property: System.Text.Json.Serialization.JsonPropertyName("duration_ms")]  int DurationMs,
+    [property: System.Text.Json.Serialization.JsonPropertyName("artists")]      List<SpotifyArtistItem>? Artists,
+    [property: System.Text.Json.Serialization.JsonPropertyName("album")]        SpotifyAlbumItem? Album,
+    [property: System.Text.Json.Serialization.JsonPropertyName("external_ids")] Dictionary<string, string>? ExternalIds
+);
+record SpotifyArtistItem([property: System.Text.Json.Serialization.JsonPropertyName("name")] string? Name);
+record SpotifyAlbumItem(
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")]   string? Name,
+    [property: System.Text.Json.Serialization.JsonPropertyName("images")] List<SpotifyImageItem>? Images
+);
+record SpotifyImageItem([property: System.Text.Json.Serialization.JsonPropertyName("url")] string? Url);
+
+record SpotifyPlaylistsPage(
+    [property: System.Text.Json.Serialization.JsonPropertyName("items")] List<SpotifyPlaylistItem2>? Items,
+    [property: System.Text.Json.Serialization.JsonPropertyName("next")]  string? Next
+);
+record SpotifyPlaylistItem2(
+    [property: System.Text.Json.Serialization.JsonPropertyName("id")]     string? Id,
+    [property: System.Text.Json.Serialization.JsonPropertyName("name")]   string? Name,
+    [property: System.Text.Json.Serialization.JsonPropertyName("images")] List<SpotifyImageItem>? Images,
+    [property: System.Text.Json.Serialization.JsonPropertyName("tracks")] SpotifyTrackCount? Tracks
+);
+record SpotifyTrackCount([property: System.Text.Json.Serialization.JsonPropertyName("total")] int Total);
