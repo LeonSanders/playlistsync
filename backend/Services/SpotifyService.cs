@@ -94,10 +94,22 @@ public class SpotifyService(IConfiguration config, AppDbContext db, ILogger<Spot
     // Returns a valid (refreshed if needed) access token for direct HTTP calls
     private async Task<string> GetFreshTokenAsync(string userId)
     {
-        await GetClientAsync(userId); // triggers refresh if needed + saves
         var conn = await db.UserConnections
             .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
             ?? throw new InvalidOperationException("Spotify not connected");
+
+        if (conn.ExpiresAt <= DateTime.UtcNow.AddMinutes(5))
+        {
+            logger.LogInformation("Refreshing Spotify token for {UserId}", userId);
+            var refreshed = await new OAuthClient().RequestToken(
+                new AuthorizationCodeRefreshRequest(_clientId, _clientSecret, conn.RefreshToken));
+            conn.AccessToken = refreshed.AccessToken;
+            conn.ExpiresAt   = DateTime.UtcNow.AddSeconds(refreshed.ExpiresIn);
+            conn.UpdatedAt   = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        logger.LogInformation("GetFreshTokenAsync: token length {Len}, expires {Exp}", conn.AccessToken?.Length ?? 0, conn.ExpiresAt);
         return conn.AccessToken;
     }
 
