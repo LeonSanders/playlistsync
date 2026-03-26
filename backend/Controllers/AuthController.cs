@@ -55,18 +55,26 @@ public class AuthController(
         var allStates = await db.OAuthStates.Where(s => s.Service == "spotify").ToListAsync();
         var totalCount = await db.OAuthStates.CountAsync();
         logger.LogInformation("Spotify OAuthStates in DB: {Count} spotify, {Total} total. States: {States}",
-            allStates.Count,
-            totalCount,
+            allStates.Count, totalCount,
             string.Join(", ", allStates.Select(s => $"{s.State[..8]}… (expires {s.ExpiresAt:HH:mm:ss} UTC, userId {s.UserId[..8]}…)")));
 
         var oauthState = await ValidateAndConsumeStateAsync(state, "spotify");
         if (oauthState == null)
         {
             logger.LogWarning("State validation failed. Received: {State}", state);
-            return BadRequest("Invalid or expired OAuth state");
+            return Redirect(config["Frontend:Url"] + "?error=oauth_state_invalid");
         }
 
-        await spotify.HandleCallbackAsync(code, oauthState.UserId);
+        try
+        {
+            await spotify.HandleCallbackAsync(code, oauthState.UserId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Spotify callback failed after state validation");
+            return Redirect(config["Frontend:Url"] + "?error=spotify_auth_failed");
+        }
+
         SetUserCookie(oauthState.UserId);
         return Redirect(config["Frontend:Url"] + "?spotify=connected");
     }
@@ -144,21 +152,13 @@ public class AuthController(
         try
         {
             // Clean expired states
-            var expired = db.OAuthStates.Where(s => s.ExpiresAt < now);
-            db.OAuthStates.RemoveRange(expired);
-            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync(
+                "DELETE FROM \"OAuthStates\" WHERE \"ExpiresAt\" < {0}", now);
 
-            // Insert new state
-            var entry = new OAuthState
-            {
-                State        = state,
-                UserId       = userId,
-                Service      = service,
-                CodeVerifier = codeVerifier,
-                ExpiresAt    = expiresAt
-            };
-            db.OAuthStates.Add(entry);
-            await db.SaveChangesAsync();
+            // Insert new state directly via SQL to avoid any EF change tracking issues
+            await db.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"OAuthStates\" (\"State\", \"UserId\", \"Service\", \"CodeVerifier\", \"ExpiresAt\") VALUES ({0}, {1}, {2}, {3}, {4})",
+                state, userId, service, (object?)codeVerifier ?? DBNull.Value, expiresAt);
 
             // Verify it's actually there
             var saved = await db.OAuthStates.AnyAsync(s => s.State == state);

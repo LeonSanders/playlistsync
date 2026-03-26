@@ -29,22 +29,43 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
 
     public async Task<UserConnection> HandleCallbackAsync(string code, string userId)
     {
-        var response = await new OAuthClient().RequestToken(
-            new AuthorizationCodeTokenRequest(_clientId, _clientSecret, code, new Uri(_redirectUri)));
+        AuthorizationCodeTokenResponse response;
+        try
+        {
+            response = await new OAuthClient().RequestToken(
+                new AuthorizationCodeTokenRequest(_clientId, _clientSecret, code, new Uri(_redirectUri)));
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Spotify token exchange failed — the authorization code may have expired or already been used. Please try connecting again. ({ex.Message})");
+        }
 
-        var spotify = new SpotifyClient(response.AccessToken);
-        var profile = await spotify.UserProfile.Current();
+        var spotifyClient = new SpotifyClient(response.AccessToken);
+
+        // Profile fetch is best-effort — don't fail the whole auth if it errors
+        string serviceUserId = "", displayName = "";
+        try
+        {
+            var profile = await spotifyClient.UserProfile.Current();
+            serviceUserId = profile.Id;
+            displayName   = profile.DisplayName ?? profile.Id;
+        }
+        catch (Exception ex)
+        {
+            // Log but continue — token is still valid, profile fetch can fail
+            // if the account is in dev mode and not allowlisted
+        }
 
         var conn = await db.UserConnections
             .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
             ?? new UserConnection { UserId = userId, Service = "spotify" };
 
-        conn.AccessToken = response.AccessToken;
-        conn.RefreshToken = response.RefreshToken;
-        conn.ExpiresAt = DateTime.UtcNow.AddSeconds(response.ExpiresIn);
-        conn.ServiceUserId = profile.Id;
-        conn.DisplayName = profile.DisplayName ?? profile.Id;
-        conn.UpdatedAt = DateTime.UtcNow;
+        conn.AccessToken    = response.AccessToken;
+        conn.RefreshToken   = response.RefreshToken;
+        conn.ExpiresAt      = DateTime.UtcNow.AddSeconds(response.ExpiresIn);
+        conn.ServiceUserId  = serviceUserId;
+        conn.DisplayName    = displayName.Length > 0 ? displayName : "Spotify User";
+        conn.UpdatedAt      = DateTime.UtcNow;
 
         if (conn.Id == 0) db.UserConnections.Add(conn);
         await db.SaveChangesAsync();

@@ -64,6 +64,13 @@ export default function App() {
     const params = new URLSearchParams(window.location.search)
     if (params.has('spotify')) { showToast('Spotify connected!'); window.history.replaceState({}, '', '/') }
     if (params.has('tidal'))   { showToast('Tidal connected!');   window.history.replaceState({}, '', '/') }
+    if (params.has('error')) {
+      const msg = params.get('error') === 'oauth_state_invalid'
+        ? 'Login session expired — please try connecting again'
+        : 'Authentication failed — please try again'
+      showToast(msg, 'error')
+      window.history.replaceState({}, '', '/')
+    }
   }, [])
 
   // Cleanup progress timer on unmount
