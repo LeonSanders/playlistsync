@@ -311,6 +311,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
         t.Attributes?.Isrc,
         t.Attributes?.Album?.ImageUrl,
         t.Attributes?.DurationSeconds * 1000 ?? 0);
+}
 
     /// Fetches any public Tidal playlist by ID.
     /// Uses the user's token if they have Tidal connected; otherwise uses client credentials.
@@ -369,7 +370,7 @@ public class TidalService(IConfiguration config, AppDbContext db, HttpClient htt
             ?? throw new Exception("Failed to parse client credentials token");
         return token.AccessToken;
     }
-}
+
 
 // ── JSON:API response shapes ──────────────────────────────────────────────────
 

@@ -91,17 +91,24 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
         return new SpotifyClient(conn.AccessToken);
     }
 
+    // Returns a valid (refreshed if needed) access token for direct HTTP calls
+    private async Task<string> GetFreshTokenAsync(string userId)
+    {
+        await GetClientAsync(userId); // triggers refresh if needed + saves
+        var conn = await db.UserConnections
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
+            ?? throw new InvalidOperationException("Spotify not connected");
+        return conn.AccessToken;
+    }
+
     public async Task<List<PlaylistDto>> GetPlaylistsAsync(string userId, List<Data.SyncMapping> mappings)
     {
         try
         {
-            var conn = await db.UserConnections
-                .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
-                ?? throw new InvalidOperationException("Spotify not connected");
-
+            var token = await GetFreshTokenAsync(userId);
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
             var playlists = new List<PlaylistDto>();
             string? url = "https://api.spotify.com/v1/me/playlists?limit=50";
@@ -138,16 +145,13 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     public async Task<List<TrackDto>> GetPlaylistTracksAsync(string userId, string playlistId)
     {
         // GET /playlists/{id}/items — replaces removed /playlists/{id}/tracks (Feb 2026)
-        var conn = await db.UserConnections
-            .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
-            ?? throw new InvalidOperationException("Spotify not connected");
-
+        var token = await GetFreshTokenAsync(userId);
         var tracks = new List<TrackDto>();
         string? url = $"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=50";
 
         using var http = new HttpClient();
         http.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         while (url != null)
         {
@@ -192,13 +196,10 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     public async Task AddTracksAsync(string userId, string playlistId, IEnumerable<string> spotifyTrackIds)
     {
         // POST /playlists/{id}/items — replaces removed /playlists/{id}/tracks (Feb 2026)
-        var conn = await db.UserConnections
-            .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify")
-            ?? throw new InvalidOperationException("Spotify not connected");
-
+        var token = await GetFreshTokenAsync(userId);
         using var http = new HttpClient();
         http.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", conn.AccessToken);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         foreach (var chunk in spotifyTrackIds.Chunk(100))
         {
@@ -251,31 +252,22 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     /// Falls back to app credentials if the user doesn't have Spotify connected.
     public async Task<(PlaylistDto metadata, List<TrackDto> tracks)> GetPlaylistByIdAsync(string userId, string playlistId)
     {
-        SpotifyClient client;
+        string token;
         try
         {
             if (string.IsNullOrEmpty(userId)) throw new InvalidOperationException("No user");
-            client = await GetClientAsync(userId);
+            token = await GetFreshTokenAsync(userId);
         }
         catch
         {
-            client = new SpotifyClient(await new OAuthClient().RequestToken(
-                new ClientCredentialsRequest(_clientId, _clientSecret)));
+            // Fall back to client credentials for public playlist access
+            token = (await new OAuthClient().RequestToken(
+                new ClientCredentialsRequest(_clientId, _clientSecret))).AccessToken;
         }
 
         try
         {
-            // GET /playlists/{id} still works; GET /playlists/{id}/items replaces /tracks (Feb 2026)
             using var http = new HttpClient();
-            http.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer",
-                    client is SpotifyClient sc ? "" : ""); // token set below
-
-            // Re-fetch token string for direct HTTP since we have the client object
-            var conn = string.IsNullOrEmpty(userId) ? null :
-                await db.UserConnections.FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify");
-            var token = conn?.AccessToken
-                ?? (await new OAuthClient().RequestToken(new ClientCredentialsRequest(_clientId, _clientSecret))).AccessToken;
             http.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
