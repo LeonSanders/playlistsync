@@ -215,29 +215,37 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
                 new ClientCredentialsRequest(_clientId, _clientSecret)));
         }
 
-        var playlist = await client.Playlists.Get(playlistId);
-        var pages    = await client.PaginateAll(await client.Playlists.GetItems(playlistId));
+        try
+        {
+            var playlist = await client.Playlists.Get(playlistId);
+            var pages    = await client.PaginateAll(await client.Playlists.GetItems(playlistId));
 
-        var metadata = new PlaylistDto(
-            playlist.Id!,
-            playlist.Name!,
-            playlist.Tracks?.Total ?? 0,
-            playlist.Images?.FirstOrDefault()?.Url,
-            false, null, "never");
+            var metadata = new PlaylistDto(
+                playlist.Id!,
+                playlist.Name!,
+                playlist.Tracks?.Total ?? 0,
+                playlist.Images?.FirstOrDefault()?.Url,
+                false, null, "never");
 
-        var tracks = pages
-            .Where(i => i.Track is FullTrack)
-            .Select(i => {
-                var t = (FullTrack)i.Track;
-                return new TrackDto(t.Id, t.Name,
-                    string.Join(", ", t.Artists.Select(a => a.Name)),
-                    t.Album?.Name,
-                    t.ExternalIds?.TryGetValue("isrc", out var isrc) == true ? isrc : null,
-                    t.Album?.Images?.FirstOrDefault()?.Url,
-                    t.DurationMs);
-            }).ToList();
+            var tracks = pages
+                .Where(i => i.Track is FullTrack)
+                .Select(i => {
+                    var t = (FullTrack)i.Track;
+                    return new TrackDto(t.Id, t.Name,
+                        string.Join(", ", t.Artists.Select(a => a.Name)),
+                        t.Album?.Name,
+                        t.ExternalIds?.TryGetValue("isrc", out var isrc) == true ? isrc : null,
+                        t.Album?.Images?.FirstOrDefault()?.Url,
+                        t.DurationMs);
+                }).ToList();
 
-        return (metadata, tracks);
+            return (metadata, tracks);
+        }
+        catch (SpotifyAPI.Web.APIException ex)
+        {
+            var status = ex.Response?.StatusCode;
+            var body   = ex.Response?.Body?.ToString() ?? "(no body)";
+            throw new Exception($"Spotify API {status} for playlist {playlistId}: {body}");
+        }
     }
-
 }
