@@ -62,8 +62,13 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.has('spotify')) { showToast('Spotify connected!'); window.history.replaceState({}, '', '/') }
-    if (params.has('tidal'))   { showToast('Tidal connected!');   window.history.replaceState({}, '', '/') }
+    if (params.has('spotify') || params.has('tidal')) {
+      // Clear stale localStorage userId — the cookie set during OAuth is the authoritative one
+      localStorage.removeItem('playlistsync_user_id')
+      const svc = params.has('spotify') ? 'Spotify' : 'Tidal'
+      showToast(`${svc} connected!`)
+      window.history.replaceState({}, '', '/')
+    }
     if (params.has('error')) {
       const msg = params.get('error') === 'oauth_state_invalid'
         ? 'Login session expired — please try connecting again'
@@ -133,7 +138,7 @@ export default function App() {
     if (!urlInput.trim()) return
     setUrlLoading(true)
     try {
-      const result = await api.playlists.fromUrl(urlInput.trim())
+      const result = await api.playlists.fromUrl(urlInput.trim(), status?.userId)
       setImportedPlaylist(result)
       setSelectedLeft(null); setSelectedRight(null)
       setActiveMapping(null); setTrackStatus([]); setSyncResult(null)

@@ -30,10 +30,10 @@ export const api = {
   playlists: {
     getSpotify: () => req<Playlist[]>(`${base}/playlists/spotify`),
     getTidal: () => req<Playlist[]>(`${base}/playlists/tidal`),
-    fromUrl: (url: string) => req<ImportedPlaylist>(`${base}/playlists/from-url`, {
+    fromUrl: (url: string, userId?: string) => req<ImportedPlaylist>(`${base}/playlists/from-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, userId }),
     }),
   },
 

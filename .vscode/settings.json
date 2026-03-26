@@ -31,6 +31,6 @@
   },
   "omnisharp.enableRoslynAnalyzers": true,
   "omnisharp.enableEditorConfigSupport": true,
-  "dotnet.inlayHints.enableInlayHintsForParameters": true,
-  "csharp.inlayHints.enableInlayHintsForTypes": false
+  "csharp.inlayHints.parameters.enabled": true,
+  "csharp.inlayHints.types.enabled": false
 }

@@ -51,6 +51,8 @@ public class PlaylistsController(
     [HttpPost("from-url")]
     public async Task<IActionResult> FromUrl([FromBody] FromUrlRequest req)
     {
+        // userId from body takes precedence over cookie/header (avoids stale localStorage issues)
+        var userId = !string.IsNullOrEmpty(req.UserId) ? req.UserId : UserId;
         var parsed = ParsePlaylistUrl(req.Url);
         if (parsed == null)
             return BadRequest("Couldn't parse a playlist ID from that URL. Expected a Spotify or Tidal playlist link.");
@@ -60,8 +62,8 @@ public class PlaylistsController(
         try
         {
             var (metadata, tracks) = service == "spotify"
-                ? await spotify.GetPlaylistByIdAsync(UserId, playlistId)
-                : await tidal.GetPlaylistByIdAsync(UserId, playlistId);
+                ? await spotify.GetPlaylistByIdAsync(userId, playlistId)
+                : await tidal.GetPlaylistByIdAsync(userId, playlistId);
 
             return Ok(new ImportedPlaylistDto(service, playlistId, metadata.Name, metadata.TrackCount, metadata.ImageUrl, tracks));
         }
@@ -95,7 +97,7 @@ public class PlaylistsController(
     }
 }
 
-public record FromUrlRequest(string Url);
+public record FromUrlRequest(string Url, string? UserId = null);
 public record ImportedPlaylistDto(
     string Service,
     string PlaylistId,
