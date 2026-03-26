@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PlaylistSync.Services;
 
-public class SpotifyService(IConfiguration config, AppDbContext db)
+public class SpotifyService(IConfiguration config, AppDbContext db, ILogger<SpotifyService> logger)
 {
     private readonly string _clientId = config["Spotify:ClientId"]!;
     private readonly string _clientSecret = config["Spotify:ClientSecret"]!;
@@ -146,6 +146,7 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     {
         // GET /playlists/{id}/items — replaces removed /playlists/{id}/tracks (Feb 2026)
         var token = await GetFreshTokenAsync(userId);
+        logger.LogInformation("GetPlaylistTracksAsync {PlaylistId}, token length: {Len}", playlistId, token?.Length ?? 0);
         var tracks = new List<TrackDto>();
         string? url = $"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=50";
 
@@ -253,17 +254,20 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
     public async Task<(PlaylistDto metadata, List<TrackDto> tracks)> GetPlaylistByIdAsync(string userId, string playlistId)
     {
         string token;
+        bool usingClientCredentials = false;
         try
         {
             if (string.IsNullOrEmpty(userId)) throw new InvalidOperationException("No user");
             token = await GetFreshTokenAsync(userId);
         }
-        catch
+        catch (Exception ex)
         {
-            // Fall back to client credentials for public playlist access
+            logger.LogWarning("GetPlaylistByIdAsync falling back to client credentials: {Reason}", ex.Message);
+            usingClientCredentials = true;
             token = (await new OAuthClient().RequestToken(
                 new ClientCredentialsRequest(_clientId, _clientSecret))).AccessToken;
         }
+        logger.LogInformation("GetPlaylistByIdAsync {PlaylistId} using {Auth}", playlistId, usingClientCredentials ? "client_credentials" : "user_token");
 
         try
         {
