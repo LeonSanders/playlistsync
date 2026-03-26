@@ -68,12 +68,8 @@ public class PlaylistsController(
         catch (Exception ex)
         {
             var logger = HttpContext.RequestServices.GetRequiredService<ILogger<PlaylistsController>>();
-            // Unwrap SpotifyAPI exception for more detail
-            var detail = ex is SpotifyAPI.Web.APIException apiEx
-                ? $"Spotify API error — Response: {apiEx.Response?.Body} StatusCode: {apiEx.Response?.StatusCode}"
-                : ex.Message;
-            logger.LogError(ex, "from-url failed for {Service}/{PlaylistId}: {Detail}", service, playlistId, detail);
-            return BadRequest($"Failed to fetch playlist: {detail}");
+            logger.LogError(ex, "from-url failed for {Service}/{PlaylistId}", service, playlistId);
+            return BadRequest(ex.Message);
         }
     }
 

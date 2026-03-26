@@ -204,13 +204,11 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
         SpotifyClient client;
         try
         {
-            // Use user's token if connected, otherwise fall back to client credentials
             if (string.IsNullOrEmpty(userId)) throw new InvalidOperationException("No user");
             client = await GetClientAsync(userId);
         }
         catch
         {
-            // Client credentials for public playlist access
             client = new SpotifyClient(await new OAuthClient().RequestToken(
                 new ClientCredentialsRequest(_clientId, _clientSecret)));
         }
@@ -245,7 +243,10 @@ public class SpotifyService(IConfiguration config, AppDbContext db)
         {
             var status = ex.Response?.StatusCode;
             var body   = ex.Response?.Body?.ToString() ?? "(no body)";
-            throw new Exception($"Spotify API {status} for playlist {playlistId}: {body}");
+            var friendly = status == System.Net.HttpStatusCode.Forbidden
+                ? "This playlist is private or not accessible. Make sure it's set to Public in Spotify."
+                : $"Spotify API {status} for playlist {playlistId}: {body}";
+            throw new Exception(friendly);
         }
     }
 }

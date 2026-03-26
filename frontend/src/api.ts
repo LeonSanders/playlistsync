@@ -3,16 +3,17 @@ import type { ConnectionStatus, Playlist, TrackSyncStatus, Mapping, SyncResult, 
 const base = '/api'
 
 async function req<T>(url: string, options?: RequestInit): Promise<T> {
-  // Send stored userId as header fallback if cookie might be missing
   const storedUserId = localStorage.getItem('playlistsync_user_id')
   const headers: Record<string, string> = { ...(options?.headers as Record<string, string> ?? {}) }
-  if (storedUserId) headers['X-User-Id'] = storedUserId
+  // Don't send X-User-Id on auth/status — the cookie must be authoritative there
+  // so we always pick up the correct userId after OAuth redirects
+  if (storedUserId && !url.includes('/auth/status')) headers['X-User-Id'] = storedUserId
 
   const res = await fetch(url, { credentials: 'include', ...options, headers })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   if (res.status === 204) return undefined as T
   const data = await res.json()
-  // Store userId from auth/status response
+  // Always update localStorage from auth/status so it stays in sync with the cookie
   if (url.includes('/auth/status') && data.userId)
     localStorage.setItem('playlistsync_user_id', data.userId)
   return data

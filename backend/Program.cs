@@ -90,12 +90,8 @@ if (!isTest)
         }
     }
 
-    // Clean up any broken Spotify connections saved with empty ServiceUserId
-    // (these result from failed profile fetches during auth)
-    var broken = ctx.UserConnections
-        .Where(c => c.Service == "spotify" && c.ServiceUserId == "");
-    ctx.UserConnections.RemoveRange(broken);
-    await ctx.SaveChangesAsync();
+    // Note: we intentionally don't clean up connections with empty ServiceUserId
+    // as these are valid connections where the profile fetch failed (e.g. dev mode allowlist)
 }
 
 if (app.Environment.IsDevelopment())
