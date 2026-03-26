@@ -46,36 +46,23 @@ public class PlaylistsController(
     }
 
     // POST /api/playlists/from-url
-    // Accepts a Spotify or Tidal playlist URL, returns playlist metadata + tracks
-    // Uses client credentials for public access — no user login required on that service
+    // Accepts a Spotify or Tidal playlist URL — no login required for public playlists
     [HttpPost("from-url")]
     public async Task<IActionResult> FromUrl([FromBody] FromUrlRequest req)
     {
-        if (string.IsNullOrEmpty(UserId)) return Unauthorized();
-
         var parsed = ParsePlaylistUrl(req.Url);
         if (parsed == null)
-            return BadRequest("Couldn't parse a playlist ID from that URL. " +
-                "Expected a Spotify or Tidal playlist link.");
+            return BadRequest("Couldn't parse a playlist ID from that URL. Expected a Spotify or Tidal playlist link.");
 
         var (service, playlistId) = parsed.Value;
 
         try
         {
-            // For the user's own connected service, use their token
-            // For the other service (no account), use app-level client credentials
             var (metadata, tracks) = service == "spotify"
                 ? await spotify.GetPlaylistByIdAsync(UserId, playlistId)
                 : await tidal.GetPlaylistByIdAsync(UserId, playlistId);
 
-            return Ok(new ImportedPlaylistDto(
-                service,
-                playlistId,
-                metadata.Name,
-                metadata.TrackCount,
-                metadata.ImageUrl,
-                tracks
-            ));
+            return Ok(new ImportedPlaylistDto(service, playlistId, metadata.Name, metadata.TrackCount, metadata.ImageUrl, tracks));
         }
         catch (Exception ex)
         {

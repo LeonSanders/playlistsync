@@ -18,6 +18,10 @@ public class AuthController(
     public async Task<IActionResult> Status()
     {
         var userId = GetOrCreateUserId();
+        var logger = HttpContext.RequestServices.GetRequiredService<ILogger<AuthController>>();
+        var hasCookie = Request.Cookies.ContainsKey("user_id");
+        logger.LogInformation("Status check. UserId: {UserId}, HasCookie: {HasCookie}", userId[..8], hasCookie);
+
         var connections = await db.UserConnections
             .Where(c => c.UserId == userId)
             .ToListAsync();
