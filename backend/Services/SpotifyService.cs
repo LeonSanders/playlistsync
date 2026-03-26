@@ -132,12 +132,16 @@ public class SpotifyService(IConfiguration config, AppDbContext db, ILogger<Spot
             }
             return playlists;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Token is invalid — remove the broken connection so the user can re-auth
-            var conn = await db.UserConnections
-                .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify");
-            if (conn != null) { db.UserConnections.Remove(conn); await db.SaveChangesAsync(); }
+            logger.LogError(ex, "GetPlaylistsAsync failed for userId {UserId}", userId);
+            // Only remove connection on auth errors, not transient failures
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+            {
+                var conn = await db.UserConnections
+                    .FirstOrDefaultAsync(c => c.UserId == userId && c.Service == "spotify");
+                if (conn != null) { db.UserConnections.Remove(conn); await db.SaveChangesAsync(); }
+            }
             return [];
         }
     }
